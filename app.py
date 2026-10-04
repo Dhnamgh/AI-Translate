@@ -110,7 +110,7 @@ tab1, tab2 = st.tabs([
 ])
 
 # ==============================================================================
-# TAB 1: DỊCH VĂN BẢN & HỘI THOẠI
+# TAB 1: DỊCH VĂN BẢN & HỘI THOẠI (GIỮ NGUYÊN)
 # ==============================================================================
 with tab1:
     st.subheader("💬 Dịch văn bản & Hội thoại chuyên sâu")
@@ -137,7 +137,6 @@ with tab1:
         else:
             st.warning("Vui lòng nhập văn bản cần dịch.")
 
-    # Hiển thị kết quả và thay đổi giọng đọc / tốc độ trực tiếp không cần bấm dịch lại
     if "last_translation" in st.session_state and st.session_state["last_translation"]:
         st.markdown("### Kết quả dịch:")
         st.success(st.session_state["last_translation"])
@@ -170,11 +169,11 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (BÊN TRÁI DỊCH, BÊN PHẢI GỐC)
 # ==============================================================================
 with tab2:
     st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    st.markdown("Hệ thống nhận diện giọng nói trực tiếp và hiển thị chữ đuổi theo thời gian thực mà không làm đơ giao diện.")
+    st.markdown("Hệ thống nhận diện giọng nói trực tiếp, hiển thị bản dịch bên trái và văn bản gốc bên phải theo thời gian thực[cite: 1].")
 
     col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
     with col_t2_src:
@@ -221,19 +220,39 @@ with tab2:
                 font-size: 15px;
                 color: #28a745;
             }}
-            #live-box {{
-                margin-top: 12px;
-                font-style: italic;
-                color: #0056b3;
-                font-size: 18px;
-                min-height: 30px;
+            .cabin-grid {{
+                display: flex;
+                gap: 15px;
+                margin-top: 15px;
             }}
-            #live-translated {{
-                margin-top: 8px;
+            .cabin-panel {{
+                flex: 1;
+                background: #ffffff;
+                border: 1px solid #ced4da;
+                border-radius: 8px;
+                padding: 15px;
+                text-align: left;
+                max-height: 220px;
+                overflow-y: auto;
+            }}
+            .panel-title {{
                 font-weight: bold;
+                font-size: 14px;
+                margin-bottom: 8px;
+                border-bottom: 1px solid #e9ecef;
+                padding-bottom: 5px;
+            }}
+            .panel-content {{
+                font-size: 16px;
+                line-height: 1.5;
+            }}
+            #live-translated-text {{
                 color: #28a745;
-                font-size: 19px;
-                min-height: 30px;
+                font-weight: bold;
+            }}
+            #live-original-text {{
+                color: #0056b3;
+                font-style: italic;
             }}
         </style>
     </head>
@@ -244,8 +263,19 @@ with tab2:
             <button id="stop-btn" class="btn-control btn-stop" onclick="stopCabin()" disabled>⏹️ DỪNG CABIN</button>
         </div>
         <div id="status-badge">Trạng thái: Sẵn sàng kết nối Microphone...</div>
-        <div id="live-box">🎙️ Đang nghe: [Chưa có giọng nói]</div>
-        <div id="live-translated">⚡ Bản dịch realtime: [Đang chờ...]</div>
+        
+        <div class="cabin-grid">
+            <!-- Cột trái: Văn bản dịch -->
+            <div class="cabin-panel">
+                <div class="panel-title" style="color: #28a745;">🌐 Bản dịch Cabin (Realtime)</div>
+                <div id="live-translated-text" class="panel-content">[Đang chờ bản dịch...]</div>
+            </div>
+            <!-- Cột phải: Văn bản gốc -->
+            <div class="cabin-panel">
+                <div class="panel-title" style="color: #0056b3;">🎙️ Phát biểu Gốc (Mic)</div>
+                <div id="live-original-text" class="panel-content">[Chưa có giọng nói...]</div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -294,10 +324,16 @@ with tab2:
 
                 let currentSpoken = finalStr || interim;
                 if (currentSpoken.trim() !== "") {{
-                    document.getElementById('live-box').innerText = '🎙️ Đang nghe: "' + currentSpoken + '"';
+                    // Hiển thị văn bản gốc bên phải
+                    let origBox = document.getElementById('live-original-text');
+                    origBox.innerText = currentSpoken;
+                    origBox.scrollTop = origBox.scrollHeight;
                     
+                    // Hiển thị bản dịch bên trái
                     let translatedResult = await quickTranslate(currentSpoken);
-                    document.getElementById('live-translated').innerText = '⚡ Bản dịch: "' + translatedResult + '"';
+                    let transBox = document.getElementById('live-translated-text');
+                    transBox.innerText = translatedResult;
+                    transBox.scrollTop = transBox.scrollHeight;
                 }}
             }};
 
@@ -328,4 +364,5 @@ with tab2:
     </html>
     """
 
-    components.html(cabin_html_code, height=200)
+    components.html(cabin_html_code, height=350)
+```[cite: 1]
