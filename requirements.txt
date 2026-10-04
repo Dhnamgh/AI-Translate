@@ -3,3 +3,4 @@ edge-tts
 deep-translator
 streamlit-mic-recorder
 SpeechRecognition
+pydub
