@@ -2,11 +2,11 @@ import random
 import streamlit as st
 import asyncio
 import edge_tts
-from deep_translator import GoogleTranslator
 import tempfile
 import os
 import io
 import time
+import re
 import streamlit.components.v1 as components
 
 # 1. CẤU HÌNH TRANG
@@ -78,18 +78,43 @@ def create_tts_audio(text, voice_code, speed_percent=0, pitch_hz=0):
         
     return audio_bytes
 
-# 5. HÀM DỊCH AN TOÀN TRÁNH LỖI RATE LIMIT GOOGLE (TOO MANY REQUESTS)
-def translate_safe(text, src_lang, tgt_lang, max_retries=3):
-    for attempt in range(max_retries):
-        try:
-            time.sleep(0.3)  # Tạm hoãn ngắn để giảm tải API
-            return GoogleTranslator(source=src_lang, target=tgt_lang).translate(text)
-        except Exception as e:
-            if "too many requests" in str(e).lower() or "5 requests" in str(e).lower():
-                time.sleep(1.5 * (attempt + 1))
+# 5. HÀM DỊCH CHỐNG LỖI RATE LIMIT TỐI ƯU
+def translate_robust(text, src_lang, tgt_lang):
+    """
+    Thực hiện dịch thuật đa tầng, tự động chuyển đổi phương thức nếu gặp lỗi Rate Limit
+    """
+    # Cách 1: Thử dịch bằng DeepTranslator có chia nhỏ câu ngắn
+    try:
+        from deep_translator import GoogleTranslator
+        # Tách câu theo dấu câu hoặc từ nối để tránh gửi chuỗi quá dài gây lỗi 429
+        chunks = re.split(r'(\.|\,|\n|sau đó|để)', text)
+        translated_chunks = []
+        
+        current_chunk = ""
+        for part in chunks:
+            if len(current_chunk) + len(part) < 200:
+                current_chunk += part
             else:
-                raise e
-    return GoogleTranslator(source=src_lang, target=tgt_lang).translate(text)
+                if current_chunk.strip():
+                    res = GoogleTranslator(source=src_lang, target=tgt_lang).translate(current_chunk)
+                    translated_chunks.append(res)
+                    time.sleep(0.2)
+                current_chunk = part
+                
+        if current_chunk.strip():
+            res = GoogleTranslator(source=src_lang, target=tgt_lang).translate(current_chunk)
+            translated_chunks.append(res)
+            
+        return " ".join(translated_chunks)
+    except Exception:
+        pass
+
+    # Cách 2: Thử dịch dự phòng bằng thư viện MyMemory
+    try:
+        from deep_translator import MyMemoryTranslator
+        return MyMemoryTranslator(source=src_lang, target=tgt_lang).translate(text)
+    except Exception as e:
+        raise Exception(f"Không thể kết nối máy chủ dịch: {e}")
 
 # --- GIAO DIỆN ỨNG DỤNG ---
 st.title("AI Translate")
@@ -262,8 +287,9 @@ with tab2:
                         spoken_text = recognizer.recognize_google(audio_data_rec, language=src_code)
                         st.info(f"🗣️ **Nội dung vừa nói:** {spoken_text}")
 
-                    # Gọi hàm dịch safe tránh Rate Limit
-                    translated_text = translate_safe(spoken_text, src_code[:2], tgt_code)
+                    # Thực hiện dịch chống gián đoạn Rate Limit
+                    with st.spinner("⏳ Đang dịch sang Tiếng Anh..."):
+                        translated_text = translate_robust(spoken_text, src_code[:2], tgt_code)
 
                     with col_speech_right:
                         st.markdown("### 2. Bản dịch & Giọng đọc cabin (TTS)")
@@ -275,7 +301,7 @@ with tab2:
                 except sr.UnknownValueError:
                     st.error("❌ Không nhận diện được từ ngữ nào. Vui lòng nói to, rõ ràng hơn và bấm thử lại!")
                 except Exception as e:
-                    st.error(f"❌ Lỗi xử lý âm thanh: {e}")
+                    st.error(f"❌ Lỗi xử lý âm thanh / dịch thuật: {e}")
                 finally:
                     if wav_path and os.path.exists(wav_path):
                         os.remove(wav_path)
