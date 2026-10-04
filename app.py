@@ -164,7 +164,7 @@ with tab1:
 # ==============================================================================
 with tab2:
     st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    st.markdown("Hệ thống nhận diện giọng nói và dịch hiển thị song song ngay lập tức theo thời gian thực[cite: 1, 14].")
+    st.markdown("Hệ thống nhận diện giọng nói và dịch hiển thị song song ngay lập tức theo thời gian thực.")
 
     col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
     with col_t2_src:
@@ -378,4 +378,3 @@ with tab2:
     """
 
     components.html(cabin_html_code, height=350)
-```[cite: 1, 14]
