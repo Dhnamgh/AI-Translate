@@ -163,11 +163,11 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (DÙNG PYTHON ĐỂ DỊCH CHUẨN XÁC 100%)
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (SỬA LỖI SYNTAX & TỐI ƯU GIAO DIỆN)
 # ==============================================================================
 with tab2:
     st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    st.markdown("Hệ thống nhận diện giọng nói trực tiếp và dịch thuật chính xác sang ngôn ngữ đích.")
+    st.markdown("Hệ thống nhận diện giọng nói trực tiếp, giao diện 2 cột mượt mà, không bị đơ trang[cite: 1].")
 
     col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
     with col_t2_src:
@@ -181,7 +181,6 @@ with tab2:
 
     st.write("---")
 
-    # Ô ẩn truyền văn bản gốc từ JS lên Python để dịch chính xác tuyệt đối
     spoken_text_input = st.text_input("Stream Data Bridge", key="cabin_stream_bridge", label_visibility="collapsed")
 
     if spoken_text_input and spoken_text_input.strip():
@@ -189,7 +188,6 @@ with tab2:
         if "last_cabin_spoken" not in st.session_state or st.session_state["last_cabin_spoken"] != raw_text:
             st.session_state["last_cabin_spoken"] = raw_text
             
-            # Gọi hàm dịch chuẩn của Python (MyMemory đảm bảo không bị lỗi CORS hay trùng tiếng Việt)
             translated_result = translate_stable(raw_text, src_code_val, tgt_code_val)
             
             st.session_state["conference_logs"].insert(0, {
@@ -198,7 +196,6 @@ with tab2:
                 "translated": translated_result
             })
 
-    # Giao diện Cabin nhận diện giọng nói và truyền về Python xử lý dịch
     cabin_html_code = f"""
     <!DOCTYPE html>
     <html>
@@ -315,7 +312,7 @@ with tab2:
 
             recognition.onstart = function() {{
                 isRunning = true;
-                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Đang xử lý qua hệ thống dịch chuẩn)...';
+                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
@@ -334,7 +331,9 @@ with tab2:
 
                 let currentSpoken = finalStr || interim;
                 if (currentSpoken.trim() !== "") {{
-                    document.getElementById('live-original-text.innerText = currentSpoken;
+                    let origBox = document.getElementById('live-original-text');
+                    origBox.innerText = currentSpoken;
+                    origBox.scrollTop = origBox.scrollHeight;
                     
                     if (finalStr) {{
                         updateStreamlitInput(finalStr);
@@ -371,7 +370,6 @@ with tab2:
 
     components.html(cabin_html_code, height=350)
 
-    # Hiển thị lịch sử nhật ký trực tiếp 2 cột từ cơ sở dữ liệu Python
     st.write("---")
     st.markdown("### 📺 Nhật ký trực tiếp (Live Stream Translation Log)")
     
