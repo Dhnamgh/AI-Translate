@@ -4,3 +4,4 @@ deep-translator
 streamlit-mic-recorder
 SpeechRecognition
 pydub
+google-genai
