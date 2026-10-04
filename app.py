@@ -232,7 +232,7 @@ with tab2:
                 border-radius: 8px;
                 padding: 15px;
                 text-align: left;
-                max-height: 220px;
+                max-height: 250px;
                 overflow-y: auto;
             }}
             .panel-title {{
@@ -245,6 +245,7 @@ with tab2:
             .panel-content {{
                 font-size: 16px;
                 line-height: 1.5;
+                word-wrap: break-word;
             }}
             #live-translated-text {{
                 color: #28a745;
@@ -324,12 +325,10 @@ with tab2:
 
                 let currentSpoken = finalStr || interim;
                 if (currentSpoken.trim() !== "") {{
-                    // Hiển thị văn bản gốc bên phải
                     let origBox = document.getElementById('live-original-text');
                     origBox.innerText = currentSpoken;
                     origBox.scrollTop = origBox.scrollHeight;
                     
-                    // Hiển thị bản dịch bên trái
                     let translatedResult = await quickTranslate(currentSpoken);
                     let transBox = document.getElementById('live-translated-text');
                     transBox.innerText = translatedResult;
@@ -365,4 +364,3 @@ with tab2:
     """
 
     components.html(cabin_html_code, height=350)
-```[cite: 1]
