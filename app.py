@@ -160,11 +160,11 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (TỐI ƯU CẮT NGẮN CÂU CHỐNG VƯỢT QUÁ 500 KÝ TỰ)
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (FIX CỐ ĐỊNH MÃ NGÔN NGỮ NGUỒN VÀ ĐÍCH)
 # ==============================================================================
 with tab2:
     st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    st.markdown("Hệ thống nhận diện giọng nói trực tiếp, tự động chia đoạn thông minh chống tràn giới hạn ký tự.")
+    st.markdown("Hệ thống nhận diện giọng nói trực tiếp, cố định chính xác ngôn ngữ nguồn và đích.")
 
     col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
     with col_t2_src:
@@ -279,9 +279,9 @@ with tab2:
 
         async function quickTranslate(text) {{
             if (!text || text.trim() === "") return "";
-            // Giới hạn an toàn mỗi lần dịch tối đa 400 ký tự để không bao giờ bị lỗi 500 chars limit
             let chunk = text.length > 400 ? text.substring(text.length - 400) : text;
 
+            // Truyền tường minh sl và tl để dịch đúng hướng ngôn ngữ
             try {{
                 let url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_lang_code}&tl={tgt_lang_code}&dt=t&q=" + encodeURIComponent(chunk);
                 let response = await fetch(url);
@@ -317,7 +317,7 @@ with tab2:
 
             recognition.onstart = function() {{
                 isRunning = true;
-                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Tối ưu chia đoạn chống tràn)...';
+                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Đã cố định hướng dịch chuẩn xác)...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
@@ -361,7 +361,7 @@ with tab2:
                 if (isRunning) {{
                     try {{ recognition.start(); }} catch (e) {{}}
                 }} else {{
-                    document.getElementById('status-badge').innerText = '⏹️️ Đã dừng hệ thống cabin.';
+                    document.getElementById('status-badge').innerText = '⏹ Đã dừng hệ thống cabin.';
                     document.getElementById('start-btn').disabled = false;
                     document.getElementById('stop-btn').disabled = true;
                 }}
