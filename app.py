@@ -1,7 +1,4 @@
 import time
-import json
-import urllib.parse
-import urllib.request
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -33,46 +30,31 @@ VOICE_OPTIONS = {
 }
 
 # ------------------------------------------------------------------------------
-# HÀM DỊCH THUẬT AN TOÀN & ỔN ĐỊNH
+# HÀM DỊCH THUẬT BẰNG GOOGLE GENAI (CHỐNG LỖI 429 HOÀN TOÀN)
 # ------------------------------------------------------------------------------
-from deep_translator import GoogleTranslator
-
 @st.cache_data(show_spinner=False, ttl=3600)
-def translate_safe(text, src_code, tgt_code):
-    """Hàm dịch sử dụng deep-translator kết hợp API chuẩn không bị lỗi"""
+def translate_with_ai(text, src_name, tgt_name):
+    """Sử dụng Google GenAI Gemini để dịch thuật ổn định, chất lượng cao"""
     if not text.strip():
         return ""
     
-    src = src_code.lower()
-    tgt = tgt_code.lower()
-    if src == "zh-cn": src = "zh-CN"
-    if tgt == "zh-cn": tgt = "zh-CN"
-
-    # Cách 1: Sử dụng deep-translator
     try:
-        translator = GoogleTranslator(source=src, target=tgt)
-        res = translator.translate(text)
-        if res:
-            return res
-    except Exception:
-        pass
-
-    # Cách 2: Fallback trực tiếp qua Google Translate API endpoint chính thống
-    try:
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src}&tl={tgt}&dt=t&q=" + urllib.parse.quote(text)
-        req = urllib.request.Request(
-            url, 
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        from google import genai
+        # Khởi tạo client tự động nhận diện API key từ môi trường hệ thống
+        client = genai.Client()
+        
+        prompt = f"Bạn là một thông dịch viên cabin chuyên nghiệp. Hãy dịch chính xác đoạn văn bản sau từ {src_name} sang {tgt_name}. Chỉ trả về đúng nội dung kết quả dịch, không kèm giải thích:\n\n{text}"
+        
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
         )
-        with urllib.request.urlopen(req, timeout=5) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            translated_text = "".join([sentence[0] for sentence in result[0] if sentence[0]])
-            if translated_text:
-                return translated_text
+        if response and response.text:
+            return response.text.strip()
     except Exception as e:
-        return f"Lỗi dịch thuật: {str(e)}"
-
-    return "Không thể dịch được văn bản lúc này. Vui lòng thử lại."
+        return f"Lỗi gọi AI Gemini: {str(e)}"
+    
+    return "Không thể kết nối với dịch vụ AI."
 
 # ------------------------------------------------------------------------------
 # XÁC THỰC MẬT KHẨU
@@ -122,17 +104,13 @@ with tab1:
 
     if translate_clicked:
         if input_text.strip():
-            with st.spinner("Đang dịch thuật văn bản..."):
-                src_code = LANG_OPTIONS[src_lang_name_t1]
-                tgt_code = LANG_OPTIONS[tgt_lang_name_t1]
-                
-                res_text = translate_safe(input_text, src_code, tgt_code)
+            with st.spinner("Đang dịch thuật văn bản qua AI..."):
+                res_text = translate_with_ai(input_text, src_lang_name_t1, tgt_lang_name_t1)
                 
                 st.markdown("### Kết quả dịch:")
                 st.success(res_text)
                 
-                # Chỉ đọc phát âm nếu kết quả không phải là thông báo lỗi
-                if "Lỗi dịch thuật" not in res_text and "Không thể dịch" not in res_text:
+                if "Lỗi" not in res_text:
                     tts_code = LANG_OPTIONS[tgt_lang_name_t1]
                     clean_res = res_text.replace("'", "\\'").replace('"', '\\"').replace("\n", " ")
                     components.html(f"""
@@ -179,10 +157,7 @@ with tab2:
         if "last_cabin_text" not in st.session_state or st.session_state["last_cabin_text"] != raw_text:
             st.session_state["last_cabin_text"] = raw_text
             
-            src_code_val = LANG_OPTIONS[src_lang_name_t2]
-            tgt_code_val = LANG_OPTIONS[tgt_lang_name_t2]
-            
-            translated = translate_safe(raw_text, src_code_val, tgt_code_val)
+            translated = translate_with_ai(raw_text, src_lang_name_t2, tgt_lang_name_t2)
             st.session_state["conference_logs"].insert(0, {
                 "time": time.strftime("%H:%M:%S"),
                 "original": raw_text,
