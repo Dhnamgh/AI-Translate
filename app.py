@@ -133,7 +133,7 @@ with tab1:
         st.success(st.session_state["last_translation"])
 
         st.markdown("---")
-        st.markdown("##### 🔊 Cài đặt Âm thanh & Tải về (Tự động cập nhật khi đổi giọng/tốc độ):")
+        st.markdown("##### 🔊 Cài đặt Âm thanh & Tải về:")
         
         col_v_sel, col_r_sel = st.columns(2)
         with col_v_sel:
@@ -160,7 +160,7 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (DỊCH REALTIME THÔNG MINH, KHÔNG KẸT)
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (TÍCH HỢP PROXY VƯỢT RÀO CHẶN IP)
 # ==============================================================================
 with tab2:
     st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
@@ -270,14 +270,16 @@ with tab2:
         var historyTranslated = "";
         var translationTimer;
 
-        async function fetchTranslation(text) {{
+        async function quickTranslate(text) {{
             if (!text || text.trim() === "") return "";
-            // Lấy 1000 ký tự cuối để đảm bảo không bị cắt đoạn quá ngắn
-            let chunk = text.length > 1000 ? text.substring(text.length - 1000) : text;
+            // Cắt độ dài tối đa để URL không bị quá dài
+            let chunk = text.length > 800 ? text.substring(text.length - 800) : text;
+            
+            let urlGTX = "https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_code_val}&tl={tgt_code_val}&dt=t&q=" + encodeURIComponent(chunk);
 
+            // 1. Thử gọi Google Translate trực tiếp
             try {{
-                let url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_code_val}&tl={tgt_code_val}&dt=t&q=" + encodeURIComponent(chunk);
-                let response = await fetch(url);
+                let response = await fetch(urlGTX);
                 if (response.ok) {{
                     let data = await response.json();
                     let translated = data[0].map(item => item[0]).join("");
@@ -285,19 +287,31 @@ with tab2:
                 }}
             }} catch(e) {{}}
 
+            // 2. Thử gọi Google Translate thông qua Proxy (Tránh bị chặn IP/CORS)
             try {{
-                let url2 = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(chunk) + "&langpair={src_code_val}|{tgt_code_val}";
-                let response2 = await fetch(url2);
-                if (response2.ok) {{
-                    let data2 = await response2.json();
-                    if (data2 && data2.responseData && data2.responseData.translatedText) {{
-                        return data2.responseData.translatedText;
+                let proxyUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(urlGTX);
+                let responseProxy = await fetch(proxyUrl);
+                if (responseProxy.ok) {{
+                    let dataProxy = await responseProxy.json();
+                    let translatedProxy = dataProxy[0].map(item => item[0]).join("");
+                    if (translatedProxy) return translatedProxy;
+                }}
+            }} catch(e) {{}}
+
+            // 3. Fallback cuối cùng sang MyMemory
+            try {{
+                let urlMM = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(chunk) + "&langpair={src_code_val}|{tgt_code_val}";
+                let responseMM = await fetch(urlMM);
+                if (responseMM.ok) {{
+                    let dataMM = await responseMM.json();
+                    if (dataMM.responseData && dataMM.responseData.translatedText) {{
+                        return dataMM.responseData.translatedText;
                     }}
                 }}
             }} catch(e) {{}}
 
-            // Tuyệt đối không trả về text gốc để tránh hiện tiếng Việt 2 bên
-            return " [⏳ Đang tải bản dịch...]";
+            // Nếu cả 3 đều lỗi mạng, trả về báo lỗi rõ ràng chứ không giấu đi
+            return "[Lỗi kết nối API dịch - Hãy thử nói tiếp...]";
         }}
 
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {{
@@ -311,7 +325,7 @@ with tab2:
 
             recognition.onstart = function() {{
                 isRunning = true;
-                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Dịch song song realtime)...';
+                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Đã fix lỗi treo)...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
@@ -335,34 +349,34 @@ with tab2:
                 origBox.innerText = historyOriginal + finalStr + interim;
                 origBox.scrollTop = origBox.scrollHeight;
 
-                // Nếu có câu hoàn chỉnh, dịch ngay lập tức
+                // Nếu chốt xong một câu, lập tức dịch luôn
                 if (finalStr.trim() !== "") {{
                     clearTimeout(translationTimer);
                     historyOriginal += finalStr;
-                    transBox.innerText = historyTranslated + " [⚡ Đang dịch...]";
+                    transBox.innerText = historyTranslated + " [⚡...]";
 
-                    fetchTranslation(finalStr).then(translated => {{
-                        if (translated && !translated.includes("[⏳")) {{
-                            historyTranslated += translated + " ";
-                        }}
+                    quickTranslate(finalStr).then(translated => {{
+                        historyTranslated += translated + " ";
                         transBox.innerText = historyTranslated;
                         transBox.scrollTop = transBox.scrollHeight;
                     }});
 
                 }} else if (interim.trim() !== "") {{
-                    // Dù đang nói dở chưa hết câu, nhưng nếu dừng 0.7s là dịch đuổi theo liền
+                    // Đang nói dở thì báo đang nghe
                     transBox.innerText = historyTranslated + " [...đang nghe...]";
                     transBox.scrollTop = transBox.scrollHeight;
 
+                    // Sau 1 giây không chốt câu, bắt đầu dịch cưỡng chế đoạn đang nói dở
                     clearTimeout(translationTimer);
                     translationTimer = setTimeout(() => {{
-                        fetchTranslation(interim).then(translatedInterim => {{
-                            if (translatedInterim && !translatedInterim.includes("[⏳")) {{
-                                transBox.innerText = historyTranslated + translatedInterim;
-                                transBox.scrollTop = transBox.scrollHeight;
-                            }}
+                        transBox.innerText = historyTranslated + " [⚡ Đang dịch...]";
+                        transBox.scrollTop = transBox.scrollHeight;
+                        
+                        quickTranslate(interim).then(translatedInterim => {{
+                            transBox.innerText = historyTranslated + translatedInterim;
+                            transBox.scrollTop = transBox.scrollHeight;
                         }});
-                    }}, 700); 
+                    }}, 1000); 
                 }}
             }};
 
