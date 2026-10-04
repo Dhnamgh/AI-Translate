@@ -4,6 +4,7 @@ import urllib.parse
 import urllib.request
 import streamlit as st
 import streamlit.components.v1 as components
+from deep_translator import MyMemoryTranslator
 
 # ------------------------------------------------------------------------------
 # CẤU HÌNH GIAO DIỆN & DANH SÁCH NGÔN NGỮ
@@ -33,13 +34,11 @@ VOICE_OPTIONS = {
 }
 
 # ------------------------------------------------------------------------------
-# HÀM DỊCH THUẬT ĐA TẦNG AN TOÀN (KHÔNG CẦN API KEY, KHÔNG LỖI 429)
+# HÀM DỊCH THUẬT AN TOÀN (DÙNG MYMEMORY - KHÔNG BAO GIỜ BỊ 429)
 # ------------------------------------------------------------------------------
-from deep_translator import GoogleTranslator, MyMemoryTranslator
-
 @st.cache_data(show_spinner=False, ttl=3600)
-def translate_free(text, src_code, tgt_code):
-    """Hàm dịch sử dụng nhiều nguồn dự phòng tự động, đảm bảo luôn trả về kết quả"""
+def translate_stable(text, src_code, tgt_code):
+    """Sử dụng MyMemoryTranslator chống triệt để lỗi 429 của Google"""
     if not text.strip():
         return ""
     
@@ -48,40 +47,27 @@ def translate_free(text, src_code, tgt_code):
     if src == "zh-cn": src = "zh-CN"
     if tgt == "zh-cn": tgt = "zh-CN"
 
-    # Thử dịch bằng GoogleTranslator
+    # Cách 1: Sử dụng MyMemoryTranslator chuẩn
     try:
-        translator = GoogleTranslator(source=src, target=tgt)
+        translator = MyMemoryTranslator(source=src, target=tgt)
         res = translator.translate(text)
-        if res and "429" not in res:
+        if res and res.strip():
             return res
     except Exception:
         pass
 
-    # Fallback dự phòng sang MyMemoryTranslator (Miễn phí, không bị chặn IP)
+    # Cách 2: Gọi trực tiếp API dự phòng qua URL
     try:
-        mm = MyMemoryTranslator(source=src, target=tgt)
-        res = mm.translate(text)
-        if res:
-            return res
-    except Exception:
-        pass
-
-    # Fallback cuối cùng qua Google Translate gtx API endpoint
-    try:
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src}&tl={tgt}&dt=t&q=" + urllib.parse.quote(text)
-        req = urllib.request.Request(
-            url, 
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        )
+        url = f"https://api.mymemory.translated.net/get?q={urllib.parse.quote(text)}&langpair={src}|{tgt}"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=5) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            translated_text = "".join([sentence[0] for sentence in result[0] if sentence[0]])
-            if translated_text:
-                return translated_text
+            data = json.loads(response.read().decode('utf-8'))
+            if 'responseData' in data and data['responseData']['translatedText']:
+                return data['responseData']['translatedText']
     except Exception as e:
-        return f"Không thể dịch lúc này: {str(e)}"
+        return f"Không thể kết nối dịch thuật: {str(e)}"
 
-    return "Không thể dịch được văn bản. Vui lòng kiểm tra lại kết nối mạng."
+    return "Không thể dịch được văn bản lúc này. Vui lòng thử lại."
 
 # ------------------------------------------------------------------------------
 # XÁC THỰC MẬT KHẨU
@@ -135,13 +121,13 @@ with tab1:
                 src_code = LANG_OPTIONS[src_lang_name_t1]
                 tgt_code = LANG_OPTIONS[tgt_lang_name_t1]
                 
-                res_text = translate_free(input_text, src_code, tgt_code)
+                res_text = translate_stable(input_text, src_code, tgt_code)
                 
                 st.markdown("### Kết quả dịch:")
                 st.success(res_text)
                 
-                # Chỉ đọc phát âm nếu kết quả thành công
-                if "Không thể dịch" not in res_text:
+                # Đọc phát âm nếu không có lỗi
+                if "Không thể kết nối" not in res_text and "Không thể dịch" not in res_text:
                     tts_code = LANG_OPTIONS[tgt_lang_name_t1]
                     clean_res = res_text.replace("'", "\\'").replace('"', '\\"').replace("\n", " ")
                     components.html(f"""
@@ -191,7 +177,7 @@ with tab2:
             src_code_val = LANG_OPTIONS[src_lang_name_t2]
             tgt_code_val = LANG_OPTIONS[tgt_lang_name_t2]
             
-            translated = translate_free(raw_text, src_code_val, tgt_code_val)
+            translated = translate_stable(raw_text, src_code_val, tgt_code_val)
             st.session_state["conference_logs"].insert(0, {
                 "time": time.strftime("%H:%M:%S"),
                 "original": raw_text,
