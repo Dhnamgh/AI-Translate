@@ -5,8 +5,6 @@ import edge_tts
 from deep_translator import GoogleTranslator
 import tempfile
 import os
-import speech_recognition as sr
-from streamlit_mic_recorder import mic_recorder
 
 # 1. CẤU HÌNH TRANG
 st.set_page_config(
@@ -140,74 +138,78 @@ with tab1:
                         st.error(f"❌ Có lỗi xảy ra: {e}")
 
 # ==============================================================================
-# TAB 2: DỊCH HỘI NGHỊ TRỰC TIẾP (SPEECH TO SPEECH)
+# TAB 2: DỊCH HỘI NGHỊ TRỰC TIẾP
 # ==============================================================================
 with tab2:
     st.subheader("Phiên dịch Hội nghị bằng Giọng nói (Micro & Phát lại âm thanh)")
     
-    col_lang1, col_lang2 = st.columns(2)
-    with col_lang1:
-        mode = st.selectbox(
-            "Hướng dịch phiên dịch:",
-            ["🇻🇳 Tiếng Việt ➔ 🇺🇸 Tiếng Anh", "🇺🇸 Tiếng Anh ➔ 🇻🇳 Tiếng Việt"]
+    # KIỂM TRA THƯ VIỆN MICRO HỆ THỐNG
+    mic_ready = False
+    try:
+        import speech_recognition as sr
+        from streamlit_mic_recorder import mic_recorder
+        mic_ready = True
+    except ImportError:
+        st.error("⚠️ Hệ thống chưa cài đủ gói `streamlit-mic-recorder` và `SpeechRecognition`. Vui lòng kiểm tra file `requirements.txt`.")
+
+    if mic_ready:
+        col_lang1, col_lang2 = st.columns(2)
+        with col_lang1:
+            mode = st.selectbox(
+                "Hướng dịch phiên dịch:",
+                ["🇻🇳 Tiếng Việt ➔ 🇺🇸 Tiếng Anh", "🇺🇸 Tiếng Anh ➔ 🇻🇳 Tiếng Việt"]
+            )
+        
+        st.write("---")
+        st.markdown("##### 🎙️ Bắt đầu phát biểu (Nhấn nút dưới đây để nói):")
+        
+        recorded_audio = mic_recorder(
+            start_prompt="🔴 Bấm để nói (Start Recording)",
+            stop_prompt="⏹️ Bấm để dừng & Dịch (Stop Recording)",
+            key="conference_mic"
         )
-    
-    st.write("---")
-    st.markdown("##### 🎙️ Bắt đầu phát biểu (Nhấn nút dưới đây để nói):")
-    
-    # Nút thu âm trực tiếp từ micro trình duyệt
-    recorded_audio = mic_recorder(
-        start_prompt="🔴 Bấm để nói (Start Recording)",
-        stop_prompt="⏹️ Bấm để dừng & Dịch (Stop Recording)",
-        key="conference_mic"
-    )
 
-    if recorded_audio:
-        # Lưu file âm thanh tạm thời từ Micro
-        audio_bytes = recorded_audio['bytes']
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_wav:
-            tmp_wav.write(audio_bytes)
-            tmp_wav_path = tmp_wav.name
+        if recorded_audio:
+            audio_bytes = recorded_audio['bytes']
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_wav:
+                tmp_wav.write(audio_bytes)
+                tmp_wav_path = tmp_wav.name
 
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(tmp_wav_path) as source:
-            audio_data_rec = recognizer.record(source)
+            recognizer = sr.Recognizer()
+            with sr.AudioFile(tmp_wav_path) as source:
+                audio_data_rec = recognizer.record(source)
 
-        # Xác định ngôn ngữ nguồn/đích
-        if mode == "🇻🇳 Tiếng Việt ➔ 🇺🇸 Tiếng Anh":
-            src_code, tgt_code = "vi-VN", "en"
-            tts_voice = "en-US-GuyNeural" # Giọng đọc bản dịch tiếng Anh
-        else:
-            src_code, tgt_code = "en-US", "vi"
-            tts_voice = "vi-VN-NamMinhNeural" # Giọng đọc bản dịch tiếng Việt
+            if mode == "🇻🇳 Tiếng Việt ➔ 🇺🇸 Tiếng Anh":
+                src_code, tgt_code = "vi-VN", "en"
+                tts_voice = "en-US-GuyNeural"
+            else:
+                src_code, tgt_code = "en-US", "vi"
+                tts_voice = "vi-VN-NamMinhNeural"
 
-        col_speech_left, col_speech_right = st.columns(2)
+            col_speech_left, col_speech_right = st.columns(2)
 
-        with col_speech_left:
-            st.markdown("### 1. Nhận diện giọng nói (STT)")
-            try:
-                # 1. Chuyển Giọng nói -> Văn bản (Speech-to-Text)
-                spoken_text = recognizer.recognize_google(audio_data_rec, language=src_code)
-                st.info(f"🗣️ **Nội dung vừa nói:** {spoken_text}")
+            with col_speech_left:
+                st.markdown("### 1. Nhận diện giọng nói (STT)")
+                try:
+                    spoken_text = recognizer.recognize_google(audio_data_rec, language=src_code)
+                    st.info(f"🗣️ **Nội dung vừa nói:** {spoken_text}")
 
-                # 2. Dịch thuật (Translate)
-                translated_text = GoogleTranslator(
-                    source=src_code[:2], 
-                    target=tgt_code
-                ).translate(spoken_text)
+                    translated_text = GoogleTranslator(
+                        source=src_code[:2], 
+                        target=tgt_code
+                    ).translate(spoken_text)
 
-                with col_speech_right:
-                    st.markdown("### 2. Bản dịch & Giọng đọc cabin (TTS)")
-                    st.success(f"🌐 **Bản dịch:** {translated_text}")
+                    with col_speech_right:
+                        st.markdown("### 2. Bản dịch & Giọng đọc cabin (TTS)")
+                        st.success(f"🌐 **Bản dịch:** {translated_text}")
 
-                    # 3. Tạo Giọng đọc AI tự động phát lại (Text-to-Speech)
-                    translated_audio_bytes = create_tts_audio(translated_text, tts_voice)
-                    st.audio(translated_audio_bytes, format="audio/mp3", autoplay=True)
+                        translated_audio_bytes = create_tts_audio(translated_text, tts_voice)
+                        st.audio(translated_audio_bytes, format="audio/mp3", autoplay=True)
 
-            except sr.UnknownValueError:
-                st.error("❌ Không thể nhận diện được giọng nói. Vui lòng nói rõ hơn và thử lại!")
-            except Exception as e:
-                st.error(f"❌ Có lỗi trong quá trình xử lý: {e}")
+                except sr.UnknownValueError:
+                    st.error("❌ Không thể nhận diện được giọng nói. Vui lòng nói rõ hơn và thử lại!")
+                except Exception as e:
+                    st.error(f"❌ Có lỗi trong quá trình xử lý: {e}")
 
-        if os.path.exists(tmp_wav_path):
-            os.remove(tmp_wav_path)
+            if os.path.exists(tmp_wav_path):
+                os.remove(tmp_wav_path)
