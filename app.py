@@ -1,40 +1,58 @@
 import time
 import json
+import io
 import streamlit as st
 import streamlit.components.v1 as components
+from deep_translator import GoogleTranslator
+from gtts import gTTS
 
 # ------------------------------------------------------------------------------
 # CẤU HÌNH GIAO DIỆN & BIẾN TOÀN CỤC
 # ------------------------------------------------------------------------------
 st.set_page_config(page_title="AI Translate Cabin", layout="wide")
 
+# Ánh xá mã ngôn ngữ cho Deep Translator & Web Speech API
 LANG_OPTIONS = {
-    "🇻🇳 Tiếng Việt": "vi-VN",
-    "🇺🇸 Tiếng Anh (Mỹ)": "en-US",
-    "🇬🇧 Tiếng Anh (Anh)": "en-GB",
+    "🇻🇳 Tiếng Việt": "vi",
+    "🇺🇸 Tiếng Anh (Mỹ)": "en",
+    "🇬🇧 Tiếng Anh (Anh)": "en",
     "🇨🇳 Tiếng Trung (Phổ thông)": "zh-CN",
-    "🇯🇵 Tiếng Nhật": "ja-JP",
-    "🇰🇷 Tiếng Hàn": "ko-KR",
-    "🇫🇷 Tiếng Pháp": "fr-FR",
-    "🇩🇪 Tiếng Đức": "de-DE",
-    "🇪🇸 Tiếng Tây Ban Nha": "es-ES",
-    "🇮🇹 Tiếng Ý": "it-IT",
-    "🇷🇺 Tiếng Nga": "ru-RU",
-    "🇹🇭 Tiếng Thái": "th-TH"
+    "🇯🇵 Tiếng Nhật": "ja",
+    "🇰🇷 Tiếng Hàn": "ko",
+    "🇫🇷 Tiếng Pháp": "fr",
+    "🇩🇪 Tiếng Đức": "de",
+    "🇪🇸 Tiếng Tây Ban Nha": "es",
+    "🇮🇹 Tiếng Ý": "it",
+    "🇷🇺 Tiếng Nga": "ru",
+    "🇹🇭 Tiếng Thái": "th"
 }
 
 VOICE_OPTIONS = {
-    "us Nam - Anh-Mỹ (Guy - Trầm ấm, Chuẩn Học thuật)": "en-US-GuyNeural",
-    "us Nữ - Anh-Mỹ (Jenny - Truyền cảm)": "en-US-JennyNeural",
-    "vn Nam - Tiếng Việt (Nam Minh)": "vi-VN-NamMinhNeural",
-    "vn Nữ - Tiếng Việt (Hoài My)": "vi-VN-HoaiMyNeural"
+    "us Nam - Anh-Mỹ (Guy - Trầm ấm)": "en",
+    "us Nữ - Anh-Mỹ (Jenny - Truyền cảm)": "en",
+    "vn Nam - Tiếng Việt (Nam Minh)": "vi",
+    "vn Nữ - Tiếng Việt (Hoài My)": "vi"
 }
 
+# ------------------------------------------------------------------------------
+# HÀM DỊCH THẬT & PHÁT ÂM THANH THẬT
+# ------------------------------------------------------------------------------
 def translate_robust(text, src_lang, tgt_lang):
-    return f"[Bản dịch {src_lang} ➔ {tgt_lang}]: {text}"
+    try:
+        translated = GoogleTranslator(source=src_lang, target=tgt_lang).translate(text)
+        return translated
+    except Exception as e:
+        return f"Lỗi dịch thuật: {str(e)}"
 
-def create_tts_audio(text, voice_code):
-    return b""
+def create_tts_audio(text, lang_code):
+    try:
+        tts = gTTS(text=text, lang=lang_code, slow=False)
+        fp = io.BytesIO()
+        tts.write_to_fp(fp)
+        fp.seek(0)
+        return fp.read()
+    except Exception:
+        return None
 
 def play_audio_autoplay_hidden(audio_bytes):
     if audio_bytes:
@@ -83,12 +101,15 @@ with tab1:
             src_code = LANG_OPTIONS[src_lang_name_t1]
             tgt_code = LANG_OPTIONS[tgt_lang_name_t1]
             
+            # Dịch thuật thực tế
             res_text = translate_robust(input_text, src_code, tgt_code)
             st.success(res_text)
             
-            voice_code = VOICE_OPTIONS[voice_t1_label]
+            # Phát âm thanh thực tế
+            voice_code = LANG_OPTIONS[tgt_lang_name_t1]
             audio_bytes = create_tts_audio(res_text, voice_code)
-            play_audio_autoplay_hidden(audio_bytes)
+            if audio_bytes:
+                play_audio_autoplay_hidden(audio_bytes)
         else:
             st.warning("Vui lòng nhập văn bản cần dịch.")
 
@@ -115,12 +136,11 @@ with tab2:
             st.session_state["conference_logs"] = []
             st.rerun()
 
-    lang_code_js = LANG_OPTIONS[src_lang_name_t2]
+    lang_code_js = "vi-VN" if LANG_OPTIONS[src_lang_name_t2] == "vi" else "en-US"
 
     st.write("---")
     st.markdown("##### 🎙️ Điều khiển Cabin Phiên dịch Trực tiếp:")
 
-    # Container nhận văn bản nói từ JavaScript
     spoken_text = st.text_input("Nhận diện giọng nói:", key="speech_recognition_input", label_visibility="collapsed")
 
     html_code = f"""
@@ -245,7 +265,6 @@ with tab2:
 
     components.html(html_code, height=180)
 
-    # Xử lý dịch khi nhận dữ liệu văn bản từ micro
     if spoken_text and spoken_text.strip():
         raw_text = spoken_text.strip()
         if "last_processed_text" not in st.session_state or st.session_state["last_processed_text"] != raw_text:
@@ -262,9 +281,9 @@ with tab2:
                     "translated": translated
                 })
                 
-                tts_voice_code = VOICE_OPTIONS[cabin_voice_label]
-                translated_audio = create_tts_audio(translated, tts_voice_code)
-                play_audio_autoplay_hidden(translated_audio)
+                audio_bytes = create_tts_audio(translated, tgt_code)
+                if audio_bytes:
+                    play_audio_autoplay_hidden(audio_bytes)
                 st.rerun()
             except Exception as e:
                 st.error(f"Lỗi phiên dịch: {e}")
