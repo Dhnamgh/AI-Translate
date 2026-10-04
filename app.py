@@ -171,7 +171,7 @@ with tab1:
                         st.error(f"❌ Có lỗi xảy ra: {e}")
 
 # ==============================================================================
-# TAB 2: DỊCH HỘI NGHỊ TRỰC TIẾP (CẬP NHẬT TÍNH NĂNG THEO YÊU CẦU)
+# TAB 2: DỊCH HỘI NGHỊ TRỰC TIẾP (SỬA LỖI ĐỊNH DẠNG ÂM THANH & HIỂN THỊ SONG SONG)
 # ==============================================================================
 with tab2:
     st.subheader("Phiên dịch Hội nghị bằng Giọng nói (Micro & Phát lại âm thanh)")
@@ -179,14 +179,15 @@ with tab2:
     if "conference_logs" not in st.session_state:
         st.session_state["conference_logs"] = []
 
-    # KIỂM TRA THƯ VIỆN MICRO HỆ THỐNG
+    # KIỂM TRA THƯ VIỆN MICRO HỆ THỐNG & PYDUB
     mic_ready = False
     try:
         import speech_recognition as sr
         from streamlit_mic_recorder import mic_recorder
+        from pydub import AudioSegment
         mic_ready = True
     except ImportError:
-        st.error("⚠️ Hệ thống chưa cài đủ gói `streamlit-mic-recorder` và `SpeechRecognition`. Vui lòng kiểm tra file `requirements.txt`.")
+        st.error("⚠️ Hệ thống chưa cài đủ `streamlit-mic-recorder`, `SpeechRecognition` hoặc `pydub`. Vui lòng bổ sung vào requirements.txt!")
 
     if mic_ready:
         col_lang1, col_lang2, col_lang3 = st.columns([2, 2, 1])
@@ -219,13 +220,20 @@ with tab2:
         )
 
         if recorded_audio and 'bytes' in recorded_audio:
-            audio_bytes = recorded_audio['bytes']
-            if len(audio_bytes) > 5000:
-                with st.spinner("⏳ Đang xử lý nhận diện & dịch thuật..."):
+            raw_audio_bytes = recorded_audio['bytes']
+            if len(raw_audio_bytes) > 2000:
+                with st.spinner("⏳ Đang giải mã âm thanh, nhận diện & dịch thuật..."):
                     tmp_wav_path = None
                     try:
+                        # CHUYỂN ĐỔI BẤT KỲ ĐỊNH DẠNG ÂM THANH NÀO VỀ PCM WAV CHUẨN
+                        audio_stream = io.BytesIO(raw_audio_bytes)
+                        audio_segment = AudioSegment.from_file(audio_stream)
+                        
+                        # Chuẩn hóa về 16kHz Mono WAV để Google STT nhận diện tốt nhất
+                        audio_segment = audio_segment.set_frame_rate(16000).set_channels(1)
+                        
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_wav:
-                            tmp_wav.write(audio_bytes)
+                            audio_segment.export(tmp_wav.name, format="wav")
                             tmp_wav_path = tmp_wav.name
 
                         recognizer = sr.Recognizer()
@@ -240,26 +248,27 @@ with tab2:
                         spoken_text = recognizer.recognize_google(audio_data_rec, language=src_code)
                         translated_text = translate_robust(spoken_text, src_code, tgt_code)
 
-                        # Lưu lịch sử dịch hội nghị
+                        # Lưu vào nhật ký tiến trình hội nghị
                         st.session_state["conference_logs"].append({
                             "time": time.strftime("%H:%M:%S"),
                             "original": spoken_text,
                             "translated": translated_text
                         })
 
-                        # Phát âm thanh dịch tự động ngầm
+                        # Tự động phát âm thanh bản dịch qua giọng AI
                         tts_voice_code = VOICE_OPTIONS[cabin_voice_label]
                         translated_audio_bytes = create_tts_audio(translated_text, tts_voice_code)
                         play_audio_autoplay_hidden(translated_audio_bytes)
 
                     except sr.UnknownValueError:
-                        st.error("❌ Không thể nhận diện được giọng nói. Vui lòng nói rõ hơn và thử lại!")
+                        st.error("❌ Không thể nhận diện được giọng nói. Vui lòng kiểm tra lại micro và nói rõ hơn!")
                     except Exception as e:
                         st.error(f"❌ Có lỗi trong quá trình xử lý: {e}")
                     finally:
                         if tmp_wav_path and os.path.exists(tmp_wav_path):
                             os.remove(tmp_wav_path)
 
+        # HIỂN THỊ DẠNG GOOGLE TRANSLATE CONFERENCES (SONG SONG 2 CỘT)
         st.write("---")
         st.markdown("### 📺 Nhật Ký Khớp Ngôn Ngữ Trực Tiếp (Live Stream Log)")
         
