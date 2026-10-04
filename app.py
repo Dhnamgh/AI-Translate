@@ -171,8 +171,13 @@ with tab1:
                     except Exception as e:
                         st.error(f"❌ Có lỗi xảy ra: {e}")
 
+import streamlit as pd_st # hoặc st
+import streamlit.components.v1 as components
+import json
+import time
+
 # ==============================================================================
-# TAB 2: DỊCH HỘI NGHỊ TRỰC TIẾP (TỰ ĐỘNG CẮT CÂU & DỊCH TỨC THÌ)
+# TAB 2: DỊCH HỘI NGHỊ TRỰC TIẾP (FIX LỖI TRUYỀN DỮ LIỆU BẰNG CUSTOM COMPONENT)
 # ==============================================================================
 with tab2:
     st.subheader("Phiên dịch Hội nghị Trực tiếp (Tự động nhận diện & Dịch liên tục)")
@@ -205,22 +210,28 @@ with tab2:
     st.write("---")
     st.markdown("##### 🎙️ Điều khiển Cabin Phiên dịch Trực tiếp:")
     
-    # HTML5 Component được khắc phục lỗi giao tiếp & tự động ngắt câu sau 1.5 giây im lặng
+    # Tạo Custom Component chuẩn bằng HTML/JS có giao tiếp qua Streamlit.setComponentValue
+    speech_component = components.declare_component(
+        "speech_recognizer",
+        value=""
+    )
+
+    # HTML code giao tiếp chuẩn với Streamlit API
     html_code = f"""
     <!DOCTYPE html>
     <html>
     <head>
         <script>
-        function sendToStreamlit(value) {{
-            window.parent.postMessage({{
-                isStreamlitMessage: true,
-                type: "streamlit:setComponentValue",
-                value: value
-            }}, "*");
-        }}
+            // Thư viện chuẩn giao tiếp với Streamlit Component
+            function sendToStreamlit(textValue) {{
+                window.parent.postMessage({{
+                    type: "streamlit:setComponentValue",
+                    value: textValue
+                }}, "*");
+            }}
         </script>
     </head>
-    <body style="margin: 0; font-family: sans-serif;">
+    <body style="margin: 0; font-family: sans-serif; background-color: transparent;">
     <div style="text-align: center; padding: 15px; border: 1px solid #e0e0e0; border-radius: 10px; background-color: #f9f9f9;">
         <button id="start-btn" onclick="startSpeech()" style="background-color: #28a745; color: white; border: none; padding: 12px 24px; font-size: 16px; font-weight: bold; border-radius: 5px; cursor: pointer; margin-right: 10px;">
             🔴 BẮT ĐẦU PHÁT BIỂU (Bật Mic Liên Tục)
@@ -240,7 +251,7 @@ with tab2:
         var lastRecognizedText = "";
 
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {{
-            document.getElementById('status').innerText = '❌ Trình duyệt không hỗ trợ Web Speech API. Vui lòng dùng Chrome hoặc Edge!';
+            document.getElementById('status').innerText = '❌ Trình duyệt không hỗ trợ Web Speech API. Vui lòng dùng Chrome/Edge!';
         }} else {{
             var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             recognition = new SpeechRecognition();
@@ -250,7 +261,7 @@ with tab2:
 
             recognition.onstart = function() {{
                 isListening = true;
-                document.getElementById('status').innerText = '🎙️️ Đang lắng nghe trực tiếp... (Nói tự nhiên, nghỉ 1.5s sẽ tự động dịch câu)';
+                document.getElementById('status').innerText = '🎙 Đang lắng nghe trực tiếp... (Nói xong nghỉ 1.5s sẽ tự động dịch)';
                 document.getElementById('status').style.color = '#28a745';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
@@ -268,19 +279,17 @@ with tab2:
                     }}
                 }}
 
-                var currentText = final_transcript || interim_transcript;
-                if (currentText.trim() !== '') {{
+                var currentText = (final_transcript || interim_transcript).trim();
+                if (currentText !== '') {{
                     document.getElementById('live-preview').innerText = '💬 Đang nói: ' + currentText;
-                    lastRecognizedText = currentText.trim();
+                    lastRecognizedText = currentText;
 
-                    // Xóa bộ đếm thời gian im lặng cũ và thiết lập mới (1.5 giây)
                     clearTimeout(silenceTimer);
                     silenceTimer = setTimeout(function() {{
                         if (lastRecognizedText !== "") {{
-                            document.getElementById('live-preview').innerText = '⚡ Đang dịch: ' + lastRecognizedText;
+                            document.getElementById('live-preview').innerText = '⚡ Đang gửi dịch...';
                             sendToStreamlit(lastRecognizedText);
                             lastRecognizedText = "";
-                            // Reset lại ngắt câu trong trình nhận diện
                             recognition.stop();
                         }}
                     }}, 1500);
@@ -288,14 +297,14 @@ with tab2:
             }};
 
             recognition.onerror = function(event) {{
-                console.log('Speech recognition error: ' + event.error);
+                console.log('Speech error: ' + event.error);
             }};
 
             recognition.onend = function() {{
                 if (isListening) {{
-                    recognition.start(); // Tự động bật lại mic để duy trì cabin
+                    recognition.start();
                 }} else {{
-                    document.getElementById('status').innerText = '⏹️ Đã dừng cabin phiên dịch.';
+                    document.getElementById('status').innerText = '⏹️ Đã dừng cabin.';
                     document.getElementById('status').style.color = '#dc3545';
                     document.getElementById('start-btn').disabled = false;
                     document.getElementById('stop-btn').disabled = true;
@@ -322,24 +331,57 @@ with tab2:
     </body>
     </html>
     """
-    
-    # Nhận dữ liệu phát biểu trả về từ JS Component
-    spoken_text = components.html(html_code, height=180)
 
-    # Xử lý khi có văn bản vừa ngắt câu gửi về Python
-    if spoken_text and spoken_text.strip():
+    # Gọi Component và kiểm tra giá trị an toàn
+    spoken_text = speech_component(html=html_code, height=180, default="")
+
+    # Kiểm tra biến spoken_text đảm bảo không bị lỗi NoneType
+    if spoken_text and isinstance(spoken_text, str) and spoken_text.strip():
         raw_text = spoken_text.strip()
-        src_lang = "vi-VN" if "Tiếng Việt" in mode.split("➔")[0] else "en-US"
-        tgt_lang = "en-US" if "Tiếng Anh" in mode.split("➔")[1] else "vi-VN"
         
-        try:
-            translated = translate_robust(raw_text, src_lang, tgt_lang)
-            st.session_state["conference_logs"].append({
-                "time": time.strftime("%H:%M:%S"),
-                "original": raw_text,
-                "translated": translated
-            })
+        # Tránh xử lý trùng câu vừa nhận
+        if "last_processed_text" not in st.session_state or st.session_state["last_processed_text"] != raw_text:
+            st.session_state["last_processed_text"] = raw_text
             
+            src_lang = "vi-VN" if "Tiếng Việt" in mode.split("➔")[0] else "en-US"
+            tgt_lang = "en-US" if "Tiếng Anh" in mode.split("➔")[1] else "vi-VN"
+            
+            try:
+                translated = translate_robust(raw_text, src_lang, tgt_lang)
+                st.session_state["conference_logs"].append({
+                    "time": time.strftime("%H:%M:%S"),
+                    "original": raw_text,
+                    "translated": translated
+                })
+                
+                # Tự động đọc cabin
+                tts_voice_code = VOICE_OPTIONS[cabin_voice_label]
+                translated_audio = create_tts_audio(translated, tts_voice_code)
+                play_audio_autoplay_hidden(translated_audio)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Lỗi phiên dịch: {e}")
+
+    # HIỂN THỊ LOG DỊCH SONG SONG 2 CỘT
+    st.write("---")
+    st.markdown("### 📺 Nhật Ký Khớp Ngôn Ngữ Trực Tiếp (Live Stream Log)")
+    
+    col_hist_left, col_hist_right = st.columns(2)
+    with col_hist_left:
+        st.markdown("#### 🇻🇳 Ngôn ngữ phát biểu (Gốc)")
+        if st.session_state["conference_logs"]:
+            for item in reversed(st.session_state["conference_logs"]):
+                st.info(f"⏱️ **[{item['time']}]** {item['original']}")
+        else:
+            st.caption("Đang chờ bài phát biểu...")
+
+    with col_hist_right:
+        st.markdown("#### 🇺🇸 Bản dịch cabin phiên dịch")
+        if st.session_state["conference_logs"]:
+            for item in reversed(st.session_state["conference_logs"]):
+                st.success(f"⏱️ **[{item['time']}]** {item['translated']}")
+        else:
+            st.caption("Đang chờ bản dịch...")
             # Tự động đọc cabin bản dịch
             tts_voice_code = VOICE_OPTIONS[cabin_voice_label]
             translated_audio = create_tts_audio(translated, tts_voice_code)
