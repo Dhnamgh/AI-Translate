@@ -109,7 +109,7 @@ if "conference_logs" not in st.session_state:
 # ------------------------------------------------------------------------------
 tab1, tab2 = st.tabs([
     "💬 Dịch văn bản & Hội thoại", 
-    "🎙️ Cabin Phiên dịch Trực tiếp (Realtime Stream)"
+    "🎙️ Cabin Phiên dịch Trực tiếp"
 ])
 
 # ==============================================================================
@@ -118,19 +118,13 @@ tab1, tab2 = st.tabs([
 with tab1:
     st.subheader("💬 Dịch văn bản & Hội thoại chuyên sâu")
     
-    col_t1_src, col_t1_tgt, col_t1_voice = st.columns(3)
+    col_t1_src, col_t1_tgt = st.columns(2)
     with col_t1_src:
         src_lang_name_t1 = st.selectbox("Ngôn ngữ nguồn:", list(LANG_OPTIONS.keys()), index=0, key="t1_src")
     with col_t1_tgt:
         tgt_lang_name_t1 = st.selectbox("Ngôn ngữ đích:", list(LANG_OPTIONS.keys()), index=1, key="t1_tgt")
-    with col_t1_voice:
-        voice_t1_label = st.selectbox("Giọng đọc phát âm:", list(VOICE_MAP.keys()), key="t1_voice")
 
-    col_rate, _ = st.columns([2, 4])
-    with col_rate:
-        speed_option = st.slider("Tốc độ đọc (x lần):", min_value=0.5, max_value=2.0, value=1.0, step=0.1, key="t1_speed")
-
-    input_text = st.text_area("Nhập văn bản cần dịch:", height=150, placeholder="Dán văn bản cần dịch vào đây...")
+    input_text = st.text_area("Nhập văn bản cần dịch:", height=130, placeholder="Dán văn bản cần dịch vào đây...", key="t1_input_text")
     
     col_btn1, _ = st.columns([1, 5])
     with col_btn1:
@@ -138,28 +132,34 @@ with tab1:
 
     if translate_clicked:
         if input_text.strip():
-            with st.spinner("Đang dịch và tạo âm thanh chất lượng cao..."):
+            with st.spinner("Đang dịch thuật văn bản..."):
                 src_code = LANG_OPTIONS[src_lang_name_t1]
                 tgt_code = LANG_OPTIONS[tgt_lang_name_t1]
-                
                 res_text = translate_stable(input_text, src_code, tgt_code)
                 st.session_state["last_translation"] = res_text
-                
-                audio_file = "translated_speech.mp3"
-                success_audio = create_mp3(res_text, voice_t1_label, speed_option, audio_file)
-                st.session_state["audio_ready"] = success_audio
         else:
             st.warning("Vui lòng nhập văn bản cần dịch.")
 
+    # Hiển thị kết quả và cho phép thay đổi giọng đọc / tốc độ trực tiếp không cần bấm dịch lại
     if "last_translation" in st.session_state and st.session_state["last_translation"]:
         st.markdown("### Kết quả dịch:")
         st.success(st.session_state["last_translation"])
+
+        st.markdown("---")
+        st.markdown("##### 🔊 Cài đặt Âm thanh & Tải về (Tự động cập nhật khi đổi giọng/tốc độ):")
         
-        if st.session_state.get("audio_ready", False):
-            st.markdown("##### 🔊 Nghe & Tải file âm thanh MP3:")
-            audio_path = "translated_speech.mp3"
+        col_v_sel, col_r_sel = st.columns(2)
+        with col_v_sel:
+            voice_t1_label = st.selectbox("Chọn giọng đọc:", list(VOICE_MAP.keys()), key="t1_voice_dynamic")
+        with col_r_sel:
+            speed_option = st.slider("Tốc độ đọc (x lần):", min_value=0.5, max_value=2.0, value=1.0, step=0.1, key="t1_speed_dynamic")
+
+        audio_file = "translated_speech.mp3"
+        success_audio = create_mp3(st.session_state["last_translation"], voice_t1_label, speed_option, audio_file)
+
+        if success_audio:
             try:
-                with open(audio_path, "rb") as f:
+                with open(audio_file, "rb") as f:
                     audio_bytes = f.read()
                 st.audio(audio_bytes, format="audio/mp3")
                 st.download_button(
@@ -173,50 +173,25 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (REALTIME STREAM)
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP
 # ==============================================================================
 with tab2:
     st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    st.markdown("Hệ thống nhận diện giọng nói trực tiếp và hiển thị chữ đuổi theo thời gian thực (Realtime).")
+    st.markdown("Hệ thống nhận diện giọng nói trực tiếp và hiển thị chữ đuổi theo thời gian thực mà không làm đơ giao diện.")
 
-    col_t2_src, col_t2_tgt, col_t2_voice, col_t2_clear = st.columns([2, 2, 2, 1])
+    col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
     with col_t2_src:
         src_lang_name_t2 = st.selectbox("Ngôn ngữ nói (Mic):", list(LANG_OPTIONS.keys()), index=0, key="t2_src")
     with col_t2_tgt:
         tgt_lang_name_t2 = st.selectbox("Ngôn ngữ dịch out:", list(LANG_OPTIONS.keys()), index=1, key="t2_tgt")
-    with col_t2_voice:
-        cabin_voice_label = st.selectbox("Giọng đọc cabin:", list(VOICE_MAP.keys()), key="t2_voice")
-    with col_t2_clear:
-        st.write("")
-        st.write("")
-        if st.button("🧹 Xóa nhật ký", use_container_width=True):
-            st.session_state["conference_logs"] = []
-            st.rerun()
 
     lang_code_js = "vi-VN" if LANG_OPTIONS[src_lang_name_t2] == "vi" else "en-US"
     tgt_lang_code = LANG_OPTIONS[tgt_lang_name_t2]
+    src_lang_code = LANG_OPTIONS[src_lang_name_t2]
 
     st.write("---")
 
-    # Ô ẩn nhận diện văn bản stream từ JS
-    spoken_text = st.text_input("Stream Data Bridge", key="cabin_stream_bridge", label_visibility="collapsed")
-
-    if spoken_text and spoken_text.strip():
-        raw_text = spoken_text.strip()
-        if "last_cabin_text" not in st.session_state or st.session_state["last_cabin_text"] != raw_text:
-            st.session_state["last_cabin_text"] = raw_text
-            
-            src_code_val = LANG_OPTIONS[src_lang_name_t2]
-            tgt_code_val = LANG_OPTIONS[tgt_lang_name_t2]
-            
-            translated = translate_stable(raw_text, src_code_val, tgt_code_val)
-            st.session_state["conference_logs"].insert(0, {
-                "time": time.strftime("%H:%M:%S"),
-                "original": raw_text,
-                "translated": translated
-            })
-
-    # Giao diện JavaScript thực hiện nhận diện và gọi Google Translate trực tiếp không trễ
+    # Giao diện JavaScript cabin độc lập, mượt mà hoàn toàn không gây đơ trang
     cabin_html_code = f"""
     <!DOCTYPE html>
     <html>
@@ -274,32 +249,16 @@ with tab2:
         </div>
         <div id="status-badge">Trạng thái: Sẵn sàng kết nối Microphone...</div>
         <div id="live-box">🎙️ Đang nghe: [Chưa có giọng nói]</div>
-        <div id="live-translated">⚡ Bản dịch cabin realtime: [Đang chờ...]</div>
+        <div id="live-translated">⚡ Bản dịch realtime: [Đang chờ...]</div>
     </div>
 
     <script>
         var recognition;
         var isRunning = false;
 
-        function updateStreamlitInput(text) {{
-            const doc = window.parent.document;
-            const inputs = doc.querySelectorAll('input[type="text"]');
-            for (let input of inputs) {{
-                if (input.placeholder === "Stream Data Bridge" || input.value !== undefined) {{
-                    let setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                    if (setter) {{
-                        setter.call(input, text);
-                        input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                        break;
-                    }}
-                }}
-            }}
-        }}
-
         async function quickTranslate(text) {{
             try {{
-                let url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl={LANG_OPTIONS[src_lang_name_t2]}&tl={tgt_lang_code}&dt=t&q=" + encodeURIComponent(text);
+                let url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_lang_code}&tl={tgt_lang_code}&dt=t&q=" + encodeURIComponent(text);
                 let response = await fetch(url);
                 let data = await response.json();
                 let translated = data[0].map(item => item[0]).join("");
@@ -320,7 +279,7 @@ with tab2:
 
             recognition.onstart = function() {{
                 isRunning = true;
-                document.getElementById('status-badgeinnerHTML = '🟢 Cabin đang mở mic liên tục (Song song đuổi theo người nói)...';
+                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Song song đuổi theo người nói)...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
@@ -341,13 +300,8 @@ with tab2:
                 if (currentSpoken.trim() !== "") {{
                     document.getElementById('live-box').innerText = '🎙️ Đang nghe: "' + currentSpoken + '"';
                     
-                    // Dịch ngay lập tức hiển thị song song chữ chạy
                     let translatedResult = await quickTranslate(currentSpoken);
                     document.getElementById('live-translated').innerText = '⚡ Bản dịch: "' + translatedResult + '"';
-
-                    if (finalStr) {{
-                        updateStreamlitInput(finalStr);
-                    }}
                 }}
             }};
 
@@ -378,24 +332,5 @@ with tab2:
     </html>
     """
 
-    components.html(cabin_html_code, height=190)
-
-    st.write("---")
-    st.markdown("### 📺 Nhật ký lưu trữ trực tiếp")
-    
-    col_hist_left, col_hist_right = st.columns(2)
-    with col_hist_left:
-        st.markdown(f"#### 🌐 Phát biểu gốc ({src_lang_name_t2})")
-        if st.session_state["conference_logs"]:
-            for item in st.session_state["conference_logs"]:
-                st.info(f"⏱️ **[{item['time']}]** {item['original']}")
-        else:
-            st.caption("Chưa có dữ liệu hội thoại trực tiếp...")
-
-    with col_hist_right:
-        st.markdown(f"#### 🌐 Bản dịch cabin ({tgt_lang_name_t2})")
-        if st.session_state["conference_logs"]:
-            for item in st.session_state["conference_logs"]:
-                st.success(f"⏱️ **[{item['time']}]** {item['translated']}")
-        else:
-            st.caption("Dữ liệu dịch sẽ xuất hiện ở đây...")
+    components.html(cabin_html_code, height=200)
+```[cite: 1]
