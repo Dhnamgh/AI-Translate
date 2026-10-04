@@ -160,11 +160,11 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (FIX TỰ ĐỘNG XUỐNG DÒNG KHI NGỪNG >2s)
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (GIẢM THỜI GIAN NGẮT DÒNG XUỐNG 1 GIÂY)
 # ==============================================================================
 with tab2:
     st.subheader("🎙 Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    st.markdown("Hệ thống tự động nhận diện điểm dừng, ngắt đoạn thông minh khi người nói ngừng quá 2 giây.")
+    st.markdown("Hệ thống tự động nhận diện điểm dừng, ngắt đoạn nhạy hơn khi người nói ngừng 1 giây.")
 
     col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
     with col_t2_src:
@@ -237,7 +237,7 @@ with tab2:
                 font-size: 17px;
                 line-height: 1.6;
                 word-wrap: break-word;
-                white-space: pre-wrap; /* Quan trọng: Cho phép hiển thị dấu xuống dòng \\n */
+                white-space: pre-wrap; 
             }}
             #live-translated-text {{ color: #28a745; font-weight: bold; }}
             #live-original-text {{ color: #0056b3; font-style: italic; }}
@@ -269,7 +269,7 @@ with tab2:
         var historyOriginal = "";
         var historyTranslated = "";
         var translationTimer;
-        var pauseTimer; // Bộ đếm thời gian ngắt câu >2 giây
+        var pauseTimer; 
 
         function scrollToBottom() {{
             let pTrans = document.getElementById('scroll-trans');
@@ -326,13 +326,12 @@ with tab2:
 
             recognition.onstart = function() {{
                 isRunning = true;
-                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Tự động xuống dòng khi ngắt câu)...';
+                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Ngắt dòng nhạy 1 giây)...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
 
             recognition.onresult = function(event) {{
-                // Mỗi khi có người nói, reset lại bộ đếm ngắt câu
                 clearTimeout(pauseTimer);
 
                 let interim = '';
@@ -377,8 +376,7 @@ with tab2:
                     }}, 400); 
                 }}
 
-                // BỘ ĐẾM XUỐNG DÒNG: Nếu sau 2 giây (2000ms) không có âm thanh mới nào (im lặng)
-                // Hệ thống sẽ tự động ép dấu xuống dòng (\\n\\n) vào cả bản gốc và bản dịch
+                // BỘ ĐẾM XUỐNG DÒNG: Rút ngắn thời gian ngắt xuống còn 1 giây (1000ms)
                 pauseTimer = setTimeout(() => {{
                     let hasNewlineAdded = false;
 
@@ -399,7 +397,7 @@ with tab2:
                     if (hasNewlineAdded) {{
                         scrollToBottom();
                     }}
-                }}, 2000); // 2000ms = 2 giây
+                }}, 1000); // 1 giây
             }};
 
             recognition.onend = function() {{
