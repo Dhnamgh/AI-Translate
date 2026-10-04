@@ -36,7 +36,7 @@ VOICE_MAP = {
 }
 
 # ------------------------------------------------------------------------------
-# HÀM DỊCH THUẬT AN TOÀN (MYMEMORY)
+# HÀM DỊCH THUẬT AN TOÀN (MYMEMORY) - TAB 1 GIỮ NGUYÊN
 # ------------------------------------------------------------------------------
 @st.cache_data(show_spinner=False, ttl=3600)
 def translate_stable(text, src_code, tgt_code):
@@ -68,9 +68,6 @@ def translate_stable(text, src_code, tgt_code):
 
     return "Không thể dịch được văn bản lúc này. Vui lòng thử lại."
 
-# ------------------------------------------------------------------------------
-# HÀM TẠO FILE AUDIO MP3 BẰNG EDGE-TTS
-# ------------------------------------------------------------------------------
 async def generate_tts_async(text, voice_key, speed_rate, output_filename):
     voice_name = VOICE_MAP.get(voice_key, "en-US-GuyNeural")
     percent = int((speed_rate - 1.0) * 100)
@@ -86,9 +83,6 @@ def create_mp3(text, voice_key, speed_rate, filename="translated_output.mp3"):
     except Exception:
         return False
 
-# ------------------------------------------------------------------------------
-# XÁC THỰC MẬT KHẨU
-# ------------------------------------------------------------------------------
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
@@ -101,9 +95,6 @@ if not st.session_state["authenticated"]:
             st.rerun()
     st.stop()
 
-# ------------------------------------------------------------------------------
-# GIAO DIỆN CHÍNH (TABS)
-# ------------------------------------------------------------------------------
 tab1, tab2 = st.tabs([
     "💬 Dịch văn bản & Hội thoại", 
     "🎙️ Cabin Phiên dịch Trực tiếp"
@@ -135,7 +126,7 @@ with tab1:
                 res_text = translate_stable(input_text, src_code, tgt_code)
                 st.session_state["last_translation"] = res_text
         else:
-            st.warning("Vอนi lòng nhập văn bản cần dịch.")
+            st.warning("Vui lòng nhập văn bản cần dịch.")
 
     if "last_translation" in st.session_state and st.session_state["last_translation"]:
         st.markdown("### Kết quả dịch:")
@@ -169,11 +160,11 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (TỐI ƯU CHỐNG CHẶN 10 PHÚT)
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (TỐI ƯU CẮT NGẮN CÂU CHỐNG VƯỢT QUÁ 500 KÝ TỰ)
 # ==============================================================================
 with tab2:
-    st.subheader("🎙️️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    st.markdown("Hệ thống nhận diện giọng nói trực tiếp, chống quá tải khi họp dài giờ[cite: 1].")
+    st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
+    st.markdown("Hệ thống nhận diện giọng nói trực tiếp, tự động chia đoạn thông minh chống tràn giới hạn ký tự.")
 
     col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
     with col_t2_src:
@@ -246,6 +237,7 @@ with tab2:
                 font-size: 16px;
                 line-height: 1.5;
                 word-wrap: break-word;
+                white-space: pre-wrap;
             }}
             #live-translated-text {{
                 color: #28a745;
@@ -282,11 +274,16 @@ with tab2:
     <script>
         var recognition;
         var isRunning = false;
+        var fullOriginalText = "";
+        var fullTranslatedText = "";
 
         async function quickTranslate(text) {{
-            // Nguồn 1: Google Translate API endpoint chính
+            if (!text || text.trim() === "") return "";
+            // Giới hạn an toàn mỗi lần dịch tối đa 400 ký tự để không bao giờ bị lỗi 500 chars limit
+            let chunk = text.length > 400 ? text.substring(text.length - 400) : text;
+
             try {{
-                let url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_lang_code}&tl={tgt_lang_code}&dt=t&q=" + encodeURIComponent(text);
+                let url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_lang_code}&tl={tgt_lang_code}&dt=t&q=" + encodeURIComponent(chunk);
                 let response = await fetch(url);
                 if (response.ok) {{
                     let data = await response.json();
@@ -295,9 +292,8 @@ with tab2:
                 }}
             }} catch(e) {{}}
 
-            // Nguồn dự phòng 2: MyMemory API (Chống nghẽn khi họp dài trên 10 phút)
             try {{
-                let url2 = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(text) + "&langpair={src_lang_code}|{tgt_lang_code}";
+                let url2 = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(chunk) + "&langpair={src_lang_code}|{tgt_lang_code}";
                 let response2 = await fetch(url2);
                 if (response2.ok) {{
                     let data2 = await response2.json();
@@ -307,7 +303,7 @@ with tab2:
                 }}
             }} catch(e) {{}}
 
-            return text; // Trả về nguyên bản nếu cả 2 nguồn đều bận tạm thời
+            return chunk;
         }}
 
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {{
@@ -321,7 +317,7 @@ with tab2:
 
             recognition.onstart = function() {{
                 isRunning = true;
-                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Chế độ chống quá tải 24/7)...';
+                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Tối ưu chia đoạn chống tràn)...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
@@ -332,22 +328,32 @@ with tab2:
 
                 for (let i = event.resultIndex; i < event.results.length; ++i) {{
                     if (event.results[i].isFinal) {{
-                        finalStr += event.results[i][0].transcript;
+                        finalStr += event.results[i][0].transcript + " ";
                     }} else {{
                         interim += event.results[i][0].transcript;
                     }}
                 }}
 
-                let currentSpoken = finalStr || interim;
-                if (currentSpoken.trim() !== "") {{
+                if (finalStr.trim() !== "") {{
+                    fullOriginalText += finalStr;
+                    let translatedChunk = await quickTranslate(finalStr);
+                    fullTranslatedText += translatedChunk + " ";
+
                     let origBox = document.getElementById('live-original-text');
-                    origBox.innerText = currentSpoken;
+                    origBox.innerText = fullOriginalText;
                     origBox.scrollTop = origBox.scrollHeight;
-                    
-                    let translatedResult = await quickTranslate(currentSpoken);
+
                     let transBox = document.getElementById('live-translated-text');
-                    transBox.innerText = translatedResult;
+                    transBox.innerText = fullTranslatedText;
                     transBox.scrollTop = transBox.scrollHeight;
+                }} else if (interim.trim() !== "") {{
+                    let previewOrig = fullOriginalText + interim;
+                    let origBox = document.getElementById('live-original-text');
+                    origBox.innerText = previewOrig;
+                    
+                    let previewTrans = await quickTranslate(interim);
+                    let transBox = document.getElementById('live-translated-text');
+                    transBox.innerText = fullTranslatedText + previewTrans;
                 }}
             }};
 
@@ -355,7 +361,7 @@ with tab2:
                 if (isRunning) {{
                     try {{ recognition.start(); }} catch (e) {{}}
                 }} else {{
-                    document.getElementById('status-badge').innerText = '⏹️ Đã dừng hệ thống cabin.';
+                    document.getElementById('status-badge').innerText = '⏹️️ Đã dừng hệ thống cabin.';
                     document.getElementById('start-btn').disabled = false;
                     document.getElementById('stop-btn').disabled = true;
                 }}
@@ -365,6 +371,8 @@ with tab2:
         function startCabin() {{
             if (recognition) {{
                 isRunning = true;
+                fullOriginalText = "";
+                fullTranslatedText = "";
                 try {{ recognition.start(); }} catch (e) {{}}
             }}
         }}
