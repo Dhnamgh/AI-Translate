@@ -36,7 +36,7 @@ VOICE_MAP = {
 }
 
 # ------------------------------------------------------------------------------
-# HÀM DỊCH THUẬT AN TOÀN (MYMEMORY)
+# HÀM DỊCH THUẬT AN TOÀN (MYMEMORY) - TAB 1 GIỮ NGUYÊN
 # ------------------------------------------------------------------------------
 @st.cache_data(show_spinner=False, ttl=3600)
 def translate_stable(text, src_code, tgt_code):
@@ -94,9 +94,6 @@ if not st.session_state["authenticated"]:
             st.session_state["authenticated"] = True
             st.rerun()
     st.stop()
-
-if "conference_logs" not in st.session_state:
-    st.session_state["conference_logs"] = []
 
 tab1, tab2 = st.tabs([
     "💬 Dịch văn bản & Hội thoại", 
@@ -163,11 +160,11 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (SỬA LỖI SYNTAX & TỐI ƯU GIAO DIỆN)
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (HIỆN SONG SONG REALTIME BẰNG JS)
 # ==============================================================================
 with tab2:
     st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    st.markdown("Hệ thống nhận diện giọng nói trực tiếp, giao diện 2 cột mượt mà, không bị đơ trang[cite: 1].")
+    st.markdown("Hệ thống nhận diện giọng nói và dịch hiển thị song song ngay lập tức theo thời gian thực[cite: 1, 14].")
 
     col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
     with col_t2_src:
@@ -180,21 +177,6 @@ with tab2:
     tgt_code_val = LANG_OPTIONS[tgt_lang_name_t2]
 
     st.write("---")
-
-    spoken_text_input = st.text_input("Stream Data Bridge", key="cabin_stream_bridge", label_visibility="collapsed")
-
-    if spoken_text_input and spoken_text_input.strip():
-        raw_text = spoken_text_input.strip()
-        if "last_cabin_spoken" not in st.session_state or st.session_state["last_cabin_spoken"] != raw_text:
-            st.session_state["last_cabin_spoken"] = raw_text
-            
-            translated_result = translate_stable(raw_text, src_code_val, tgt_code_val)
-            
-            st.session_state["conference_logs"].insert(0, {
-                "time": time.strftime("%H:%M:%S"),
-                "original": raw_text,
-                "translated": translated_result
-            })
 
     cabin_html_code = f"""
     <!DOCTYPE html>
@@ -284,21 +266,35 @@ with tab2:
     <script>
         var recognition;
         var isRunning = false;
+        var fullOriginalText = "";
+        var fullTranslatedText = "";
 
-        function updateStreamlitInput(text) {{
-            const doc = window.parent.document;
-            const inputs = doc.querySelectorAll('input[type="text"]');
-            for (let input of inputs) {{
-                if (input.placeholder === "Stream Data Bridge" || input.value !== undefined) {{
-                    let setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                    if (setter) {{
-                        setter.call(input, text);
-                        input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                        break;
+        async function quickTranslate(text) {{
+            if (!text || text.trim() === "") return "";
+            let chunk = text.length > 400 ? text.substring(text.length - 400) : text;
+
+            try {{
+                let url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_code_val}&tl={tgt_code_val}&dt=t&q=" + encodeURIComponent(chunk);
+                let response = await fetch(url);
+                if (response.ok) {{
+                    let data = await response.json();
+                    let translated = data[0].map(item => item[0]).join("");
+                    if (translated) return translated;
+                }}
+            }} catch(e) {{}}
+
+            try {{
+                let url2 = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(chunk) + "&langpair={src_code_val}|{tgt_code_val}";
+                let response2 = await fetch(url2);
+                if (response2.ok) {{
+                    let data2 = await response2.json();
+                    if (data2 && data2.responseData && data2.responseData.translatedText) {{
+                        return data2.responseData.translatedText;
                     }}
                 }}
-            }}
+            }} catch(e) {{}}
+
+            return chunk;
         }}
 
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {{
@@ -312,32 +308,43 @@ with tab2:
 
             recognition.onstart = function() {{
                 isRunning = true;
-                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục...';
+                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Song song realtime)...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
 
-            recognition.onresult = function(event) {{
+            recognition.onresult = async function(event) {{
                 let interim = '';
                 let finalStr = '';
 
                 for (let i = event.resultIndex; i < event.results.length; ++i) {{
                     if (event.results[i].isFinal) {{
-                        finalStr += event.results[i][0].transcript;
+                        finalStr += event.results[i][0].transcript + " ";
                     }} else {{
                         interim += event.results[i][0].transcript;
                     }}
                 }}
 
-                let currentSpoken = finalStr || interim;
-                if (currentSpoken.trim() !== "") {{
+                if (finalStr.trim() !== "") {{
+                    fullOriginalText += finalStr;
+                    let translatedChunk = await quickTranslate(finalStr);
+                    fullTranslatedText += translatedChunk + " ";
+
                     let origBox = document.getElementById('live-original-text');
-                    origBox.innerText = currentSpoken;
+                    origBox.innerText = fullOriginalText;
                     origBox.scrollTop = origBox.scrollHeight;
+
+                    let transBox = document.getElementById('live-translated-text');
+                    transBox.innerText = fullTranslatedText;
+                    transBox.scrollTop = transBox.scrollHeight;
+                }} else if (interim.trim() !== "") {{
+                    let previewOrig = fullOriginalText + interim;
+                    let origBox = document.getElementById('live-original-text');
+                    origBox.innerText = previewOrig;
                     
-                    if (finalStr) {{
-                        updateStreamlitInput(finalStr);
-                    }}
+                    let previewTrans = await quickTranslate(interim);
+                    let transBox = document.getElementById('live-translated-text');
+                    transBox.innerText = fullTranslatedText + previewTrans;
                 }}
             }};
 
@@ -355,6 +362,8 @@ with tab2:
         function startCabin() {{
             if (recognition) {{
                 isRunning = true;
+                fullOriginalText = "";
+                fullTranslatedText = "";
                 try {{ recognition.start(); }} catch (e) {{}}
             }}
         }}
@@ -369,23 +378,4 @@ with tab2:
     """
 
     components.html(cabin_html_code, height=350)
-
-    st.write("---")
-    st.markdown("### 📺 Nhật ký trực tiếp (Live Stream Translation Log)")
-    
-    col_hist_left, col_hist_right = st.columns(2)
-    with col_hist_left:
-        st.markdown(f"#### 🌐 Bản dịch cabin ({tgt_lang_name_t2})")
-        if st.session_state["conference_logs"]:
-            for item in st.session_state["conference_logs"]:
-                st.success(f"⏱️ **[{item['time']}]** {item['translated']}")
-        else:
-            st.caption("Đang chờ bản dịch...")
-
-    with col_hist_right:
-        st.markdown(f"#### 🌐 Phát biểu gốc ({src_lang_name_t2})")
-        if st.session_state["conference_logs"]:
-            for item in st.session_state["conference_logs"]:
-                st.info(f"⏱️ **[{item['time']}]** {item['original']}")
-        else:
-            st.caption("Chưa có dữ liệu hội thoại trực tiếp...")
+```[cite: 1, 14]
