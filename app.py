@@ -1,4 +1,7 @@
 import time
+import json
+import urllib.parse
+import urllib.request
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -30,67 +33,46 @@ VOICE_OPTIONS = {
 }
 
 # ------------------------------------------------------------------------------
-# THANH BÊN (SIDEBAR) - CẤU HÌNH API GEMINI CHỐNG LỖI 429
+# HÀM DỊCH THUẬT AN TOÀN & ỔN ĐỊNH
 # ------------------------------------------------------------------------------
-with st.sidebar:
-    st.subheader("⚙️ Cấu hình Hệ thống Dịch")
-    gemini_api_key = st.text_input("Nhập Gemini API Key (Tùy chọn):", type="password", help="Nếu để trống, hệ thống sẽ sử dụng cơ chế dịch thông minh dự phòng.")
-    st.markdown("---")
-    st.info("💡 **Mẹo:** Dùng Gemini API giúp dịch câu dài, hội nghị, chuyên ngành y tế/khoa học cực kỳ mượt mà, không bao giờ bị lỗi 429 của Google Translate.")
+from deep_translator import GoogleTranslator
 
-# ------------------------------------------------------------------------------
-# HÀM DỊCH THÔNG MINH DÙNG GEMINI HOẶC FALLBACK AN TOÀN (KHÔNG BAO GIỜ LỖI 429)
-# ------------------------------------------------------------------------------
 @st.cache_data(show_spinner=False, ttl=3600)
-def translate_with_gemini(text, src_lang_name, tgt_lang_name, api_key):
-    """Dịch thuật sử dụng Google GenAI Gemini, tuyệt đối không bị chặn 429"""
+def translate_safe(text, src_code, tgt_code):
+    """Hàm dịch sử dụng deep-translator kết hợp API chuẩn không bị lỗi"""
     if not text.strip():
         return ""
     
-    prompt = f"Bạn là một thông dịch viên cabin chuyên nghiệp. Hãy dịch chính xác đoạn văn bản sau từ {src_lang_name} sang {tgt_lang_name}. Chỉ trả về đúng nội dung bản dịch, không giải thích gì thêm:\n\n{text}"
-    
-    # Thử dịch bằng Google GenAI nếu có key hoặc qua môi trường
+    src = src_code.lower()
+    tgt = tgt_code.lower()
+    if src == "zh-cn": src = "zh-CN"
+    if tgt == "zh-cn": tgt = "zh-CN"
+
+    # Cách 1: Sử dụng deep-translator
     try:
-        from google import genai
-        client = None
-        if api_key and api_key.strip():
-            client = genai.Client(api_key=api_key.strip())
-        else:
-            # Thử khởi tạo mặc định (nếu có biến môi trường GEMINI_API_KEY)
-            client = genai.Client()
-            
-        if client:
-            response = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt,
-            )
-            if response and response.text:
-                return response.text.strip()
+        translator = GoogleTranslator(source=src, target=tgt)
+        res = translator.translate(text)
+        if res:
+            return res
     except Exception:
         pass
 
-    # Fallback dự phòng nếu chưa cấu hình Key Gemini (Sử dụng endpoint thay thế thông minh)
+    # Cách 2: Fallback trực tiếp qua Google Translate API endpoint chính thống
     try:
-        import urllib.parse
-        import urllib.request
-        import json
-        
-        # Lấy mã rút gọn
-        src_code = "vi" if "Việt" in src_lang_name else ("en" if "Anh" in src_lang_name else "auto")
-        tgt_code = "en" if "Anh" in tgt_lang_name else ("vi" if "Việt" in tgt_lang_name else "en")
-        if "Trung" in tgt_lang_name: tgt_code = "zh-CN"
-        
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_code}&tl={tgt_code}&dt=t&q=" + urllib.parse.quote(text)
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=4) as response:
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src}&tl={tgt}&dt=t&q=" + urllib.parse.quote(text)
+        req = urllib.request.Request(
+            url, 
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        )
+        with urllib.request.urlopen(req, timeout=5) as response:
             result = json.loads(response.read().decode('utf-8'))
-            translated_part = "".join([sentence[0] for sentence in result[0] if sentence[0]])
-            if translated_part:
-                return translated_part
-    except Exception:
-        pass
+            translated_text = "".join([sentence[0] for sentence in result[0] if sentence[0]])
+            if translated_text:
+                return translated_text
+    except Exception as e:
+        return f"Lỗi dịch thuật: {str(e)}"
 
-    return "Không thể kết nối đến máy chủ dịch thuật. Vui lòng kiểm tra lại kết nối mạng."
+    return "Không thể dịch được văn bản lúc này. Vui lòng thử lại."
 
 # ------------------------------------------------------------------------------
 # XÁC THỰC MẬT KHẨU
@@ -141,13 +123,16 @@ with tab1:
     if translate_clicked:
         if input_text.strip():
             with st.spinner("Đang dịch thuật văn bản..."):
-                res_text = translate_with_gemini(input_text, src_lang_name_t1, tgt_lang_name_t1, gemini_api_key)
+                src_code = LANG_OPTIONS[src_lang_name_t1]
+                tgt_code = LANG_OPTIONS[tgt_lang_name_t1]
+                
+                res_text = translate_safe(input_text, src_code, tgt_code)
                 
                 st.markdown("### Kết quả dịch:")
                 st.success(res_text)
                 
                 # Chỉ đọc phát âm nếu kết quả không phải là thông báo lỗi
-                if "Không thể kết nối" not in res_text:
+                if "Lỗi dịch thuật" not in res_text and "Không thể dịch" not in res_text:
                     tts_code = LANG_OPTIONS[tgt_lang_name_t1]
                     clean_res = res_text.replace("'", "\\'").replace('"', '\\"').replace("\n", " ")
                     components.html(f"""
@@ -194,7 +179,10 @@ with tab2:
         if "last_cabin_text" not in st.session_state or st.session_state["last_cabin_text"] != raw_text:
             st.session_state["last_cabin_text"] = raw_text
             
-            translated = translate_with_gemini(raw_text, src_lang_name_t2, tgt_lang_name_t2, gemini_api_key)
+            src_code_val = LANG_OPTIONS[src_lang_name_t2]
+            tgt_code_val = LANG_OPTIONS[tgt_lang_name_t2]
+            
+            translated = translate_safe(raw_text, src_code_val, tgt_code_val)
             st.session_state["conference_logs"].insert(0, {
                 "time": time.strftime("%H:%M:%S"),
                 "original": raw_text,
