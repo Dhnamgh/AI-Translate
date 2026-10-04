@@ -160,11 +160,11 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (4 LỚP KHIÊN BẢO VỆ CHỐNG CHẶN IP)
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (FIX TỐC ĐỘ SIÊU NHANH & MỞ RỘNG KHUNG)
 # ==============================================================================
 with tab2:
-    st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    st.markdown("Hệ thống nhận diện giọng nói hiển thị 2 cột, bất tử trước việc bị chặn IP.")
+    st.subheader("🎙️️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
+    st.markdown("Hệ thống nhận diện giọng nói và dịch realtime tốc độ cao, hiển thị đuổi theo từng chữ một.")
 
     col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
     with col_t2_src:
@@ -221,21 +221,21 @@ with tab2:
                 background: #ffffff;
                 border: 1px solid #ced4da;
                 border-radius: 8px;
-                padding: 15px;
+                padding: 20px;
                 text-align: left;
-                max-height: 280px;
-                overflow-y: auto;
+                height: 480px; /* Tăng chiều cao cố định để không bị cắt chữ */
+                overflow-y: auto; /* Tự động xuất hiện thanh cuộn */
             }}
             .panel-title {{
                 font-weight: bold;
-                font-size: 14px;
-                margin-bottom: 8px;
+                font-size: 15px;
+                margin-bottom: 12px;
                 border-bottom: 1px solid #e9ecef;
-                padding-bottom: 5px;
+                padding-bottom: 8px;
             }}
             .panel-content {{
-                font-size: 16px;
-                line-height: 1.5;
+                font-size: 17px;
+                line-height: 1.6;
                 word-wrap: break-word;
                 white-space: pre-wrap;
             }}
@@ -272,53 +272,42 @@ with tab2:
 
         async function fetchTranslation(text) {{
             if (!text || text.trim() === "") return "";
-            // Giới hạn 500 ký tự để không bị quá dài URL
             let chunk = text.length > 500 ? text.substring(text.length - 500) : text;
             let q = encodeURIComponent(chunk);
             let src = '{src_code_val}';
             let tgt = '{tgt_code_val}';
 
-            // Cách 1: Dùng Endpoint ẩn của Chrome (Không chung giới hạn IP với cái cũ)
+            // Ưu tiên 1: Google Translate GTX nhanh nhất
             try {{
-                let res1 = await fetch(`https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${{src}}&tl=${{tgt}}&q=${{q}}`);
+                let res1 = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${{src}}&tl=${{tgt}}&dt=t&q=${{q}}`);
                 if (res1.ok) {{
                     let data1 = await res1.json();
-                    if (Array.isArray(data1)) return data1.join(" ");
-                    if (typeof data1 === 'string') return data1;
+                    return data1[0].map(item => item[0]).join("");
                 }}
             }} catch(e) {{}}
 
-            // Cách 2: Gọi mạng lưới Lingva API ẩn danh (Vượt chặn IP)
+            // Ưu tiên 2: API nội bộ Chrome (vượt CORS)
             try {{
-                let res2 = await fetch(`https://lingva.ml/api/v1/${{src}}/${{tgt}}/${{q}}`);
+                let res2 = await fetch(`https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${{src}}&tl=${{tgt}}&q=${{q}}`);
                 if (res2.ok) {{
                     let data2 = await res2.json();
-                    if (data2.translation) return data2.translation;
+                    if (Array.isArray(data2)) return data2.join(" ");
+                    if (typeof data2 === 'string') return data2;
                 }}
             }} catch(e) {{}}
 
-            // Cách 3: Google Translate gốc
-            try {{
-                let res3 = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${{src}}&tl=${{tgt}}&dt=t&q=${{q}}`);
-                if (res3.ok) {{
-                    let data3 = await res3.json();
-                    return data3[0].map(item => item[0]).join("");
-                }}
-            }} catch(e) {{}}
-
-            // Cách 4: Bọc qua server Proxy quốc tế AllOrigins để thay đổi IP hoàn toàn
+            // Ưu tiên 3: Dùng Proxy AllOrigins để đổi IP nếu bị Google chặn
             try {{
                 let gtxUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${{src}}&tl=${{tgt}}&dt=t&q=${{q}}`;
-                let res4 = await fetch(`https://api.allorigins.win/get?url=${{encodeURIComponent(gtxUrl)}}`);
-                if (res4.ok) {{
-                    let data4 = await res4.json();
-                    let actualData = JSON.parse(data4.contents);
+                let res3 = await fetch(`https://api.allorigins.win/get?url=${{encodeURIComponent(gtxUrl)}}`);
+                if (res3.ok) {{
+                    let data3 = await res3.json();
+                    let actualData = JSON.parse(data3.contents);
                     return actualData[0].map(item => item[0]).join("");
                 }}
             }} catch(e) {{}}
 
-            // Nếu rớt mạng hoàn toàn hoặc quá tải toàn bộ server
-            return "[Hệ thống nghẽn - Xin nói tiếp...]";
+            return "[Hệ thống nghẽn...]";
         }}
 
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {{
@@ -332,7 +321,7 @@ with tab2:
 
             recognition.onstart = function() {{
                 isRunning = true;
-                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Đã bật khiên chống lỗi mạng)...';
+                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Tốc độ Realtime cực nhanh)...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
@@ -352,15 +341,14 @@ with tab2:
                 let origBox = document.getElementById('live-original-text');
                 let transBox = document.getElementById('live-translated-text');
 
-                // Cập nhật văn bản gốc (Bên phải) đuổi theo realtime
+                // Cập nhật văn bản gốc ngay lập tức
                 origBox.innerText = historyOriginal + finalStr + interim;
-                origBox.scrollTop = origBox.scrollHeight;
+                origBox.scrollTop = origBox.scrollHeight; // Tự động cuộn xuống dòng cuối
 
-                // Xử lý bản dịch (Bên trái)
                 if (finalStr.trim() !== "") {{
+                    // Dịch ngay khi chốt câu
                     clearTimeout(translationTimer);
                     historyOriginal += finalStr;
-                    transBox.innerText = historyTranslated + " [⚡...]";
 
                     fetchTranslation(finalStr).then(translated => {{
                         if (translated && !translated.includes("[Hệ thống")) {{
@@ -370,11 +358,10 @@ with tab2:
                         transBox.scrollTop = transBox.scrollHeight;
                     }});
 
-                }} else if (interim.trim() !== "") {{
-                    transBox.innerText = historyTranslated + " [...đang nghe...]";
-                    transBox.scrollTop = transBox.scrollHeight;
-
-                    // Chỉ gửi dịch khi tạm dừng 1 giây (Debounce siêu mượt, không bao giờ spam IP)
+                }} 
+                
+                if (interim.trim() !== "") {{
+                    // Dịch đuổi theo siêu tốc (Giảm thời gian chờ xuống 0.4s để song song với giọng nói)
                     clearTimeout(translationTimer);
                     translationTimer = setTimeout(() => {{
                         fetchTranslation(interim).then(translatedInterim => {{
@@ -383,7 +370,7 @@ with tab2:
                                 transBox.scrollTop = transBox.scrollHeight;
                             }}
                         }});
-                    }}, 1000); 
+                    }}, 400); // Ngưng nhẹ 0.4s là dịch lập tức
                 }}
             }};
 
@@ -416,4 +403,5 @@ with tab2:
     </html>
     """
 
-    components.html(cabin_html_code, height=380)
+    # Đã tăng height của component từ 380 lên 650 để bao trọn cả khung chữ dài
+    components.html(cabin_html_code, height=650)
