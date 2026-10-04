@@ -160,11 +160,11 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (GIẢM THỜI GIAN NGẮT DÒNG XUỐNG 1 GIÂY)
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (FIX TỰ ĐỘNG CHẤM CÂU VÀ XUỐNG DÒNG CHUẨN XÁC)
 # ==============================================================================
 with tab2:
     st.subheader("🎙 Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    st.markdown("Hệ thống tự động nhận diện điểm dừng, ngắt đoạn nhạy hơn khi người nói ngừng 1 giây.")
+    st.markdown("Hệ thống nhận diện giọng nói tự động chấm câu và ngắt đoạn khi kết thúc một ý.")
 
     col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
     with col_t2_src:
@@ -237,7 +237,7 @@ with tab2:
                 font-size: 17px;
                 line-height: 1.6;
                 word-wrap: break-word;
-                white-space: pre-wrap; 
+                white-space: pre-wrap; /* Quan trọng để hiển thị dấu \\n */
             }}
             #live-translated-text {{ color: #28a745; font-weight: bold; }}
             #live-original-text {{ color: #0056b3; font-style: italic; }}
@@ -269,7 +269,6 @@ with tab2:
         var historyOriginal = "";
         var historyTranslated = "";
         var translationTimer;
-        var pauseTimer; 
 
         function scrollToBottom() {{
             let pTrans = document.getElementById('scroll-trans');
@@ -326,20 +325,24 @@ with tab2:
 
             recognition.onstart = function() {{
                 isRunning = true;
-                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Ngắt dòng nhạy 1 giây)...';
+                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Tự động chấm câu & chia đoạn)...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
 
             recognition.onresult = function(event) {{
-                clearTimeout(pauseTimer);
-
                 let interim = '';
                 let finalStr = '';
 
                 for (let i = event.resultIndex; i < event.results.length; ++i) {{
                     if (event.results[i].isFinal) {{
-                        finalStr += event.results[i][0].transcript + " ";
+                        // Bắt sự kiện chốt câu của Google. Cắt khoảng trắng dư thừa
+                        let text = event.results[i][0].transcript.trim();
+                        // Tự động viết hoa chữ cái đầu cho đẹp
+                        text = text.charAt(0).toUpperCase() + text.slice(1);
+                        // Tự động thêm dấu chấm nếu chưa có
+                        if (!text.match(/[.!?]$/)) text += ".";
+                        finalStr += text + " ";
                     }} else {{
                         interim += event.results[i][0].transcript;
                     }}
@@ -348,16 +351,28 @@ with tab2:
                 let origBox = document.getElementById('live-original-text');
                 let transBox = document.getElementById('live-translated-text');
 
+                // Hiển thị dải chữ đang nói đuổi theo ngay lập tức
                 origBox.innerText = historyOriginal + finalStr + interim;
                 scrollToBottom(); 
 
                 if (finalStr.trim() !== "") {{
                     clearTimeout(translationTimer);
-                    historyOriginal += finalStr;
+                    
+                    let cleanFinal = finalStr.trim();
+                    // Ép xuống dòng ngay lập tức bằng 2 ký tự newline sau khi kết thúc 1 câu
+                    historyOriginal += cleanFinal + "\\n\\n";
+                    origBox.innerText = historyOriginal;
+                    scrollToBottom();
 
-                    fetchTranslation(finalStr).then(translated => {{
+                    // Dịch đoạn vừa chốt
+                    fetchTranslation(cleanFinal).then(translated => {{
                         if (translated && !translated.includes("[Hệ thống")) {{
-                            historyTranslated += translated + " ";
+                            let cleanTrans = translated.trim();
+                            cleanTrans = cleanTrans.charAt(0).toUpperCase() + cleanTrans.slice(1);
+                            if (!cleanTrans.match(/[.!?]$/)) cleanTrans += ".";
+                            
+                            // Ép xuống dòng cho bản dịch để song song với bản gốc
+                            historyTranslated += cleanTrans + "\\n\\n";
                         }}
                         transBox.innerText = historyTranslated;
                         scrollToBottom();
@@ -375,29 +390,6 @@ with tab2:
                         }});
                     }}, 400); 
                 }}
-
-                // BỘ ĐẾM XUỐNG DÒNG: Rút ngắn thời gian ngắt xuống còn 1 giây (1000ms)
-                pauseTimer = setTimeout(() => {{
-                    let hasNewlineAdded = false;
-
-                    // Xuống dòng bản gốc
-                    if (historyOriginal.trim() !== "" && !historyOriginal.endsWith("\\n\\n")) {{
-                        historyOriginal = historyOriginal.trimEnd() + "\\n\\n";
-                        document.getElementById('live-original-text').innerText = historyOriginal;
-                        hasNewlineAdded = true;
-                    }}
-
-                    // Xuống dòng bản dịch
-                    if (historyTranslated.trim() !== "" && !historyTranslated.endsWith("\\n\\n")) {{
-                        historyTranslated = historyTranslated.trimEnd() + "\\n\\n";
-                        document.getElementById('live-translated-text').innerText = historyTranslated;
-                        hasNewlineAdded = true;
-                    }}
-
-                    if (hasNewlineAdded) {{
-                        scrollToBottom();
-                    }}
-                }}, 1000); // 1 giây
             }};
 
             recognition.onend = function() {{
