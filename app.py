@@ -15,11 +15,7 @@ VOICE_OPTIONS = {
     "vn Nữ - Tiếng Việt (Hoài My)": "vi-VN-HoaiMyNeural"
 }
 
-# ------------------------------------------------------------------------------
-# HÀM PHỤ TRỢ (DỊCH TẠM & PHÁT ÂM THANH MẪU)
-# ------------------------------------------------------------------------------
 def translate_robust(text, src_lang, tgt_lang):
-    # Thay thế bằng logic gọi API dịch thực tế của ứng dụng nếu có
     return f"[Dịch]: {text}"
 
 def create_tts_audio(text, voice_code):
@@ -32,10 +28,9 @@ def play_audio_autoplay_hidden(audio_bytes):
 # ------------------------------------------------------------------------------
 # TẠO CÁC TAB CHÍNH
 # ------------------------------------------------------------------------------
-tab1, tab2, tab3 = st.tabs([
+tab1, tab2 = st.tabs([
     "💬 Dịch văn bản / Hội thoại", 
-    "🎙️ Cabin Phiên dịch Trực tiếp", 
-    "⚙️ Cấu hình Hệ thống"
+    "🎙️️ Cabin Phiên dịch Trực tiếp"
 ])
 
 with tab1:
@@ -76,11 +71,10 @@ with tab2:
 
     st.write("---")
     st.markdown("##### 🎙️ Điều khiển Cabin Phiên dịch Trực tiếp:")
-    
-    speech_component = components.declare_component(
-        "speech_recognizer",
-        value=""
-    )
+
+    # Đọc tham số query từ JavaScript gửi về qua URL
+    query_params = st.query_params
+    spoken_text = query_params.get("speech_text", "")
 
     html_code = f"""
     <!DOCTYPE html>
@@ -88,10 +82,9 @@ with tab2:
     <head>
         <script>
             function sendToStreamlit(textValue) {{
-                window.parent.postMessage({{
-                    type: "streamlit:setComponentValue",
-                    value: textValue
-                }}, "*");
+                const url = new URL(window.parent.location.href);
+                url.searchParams.set("speech_text", textValue);
+                window.parent.location.href = url.href;
             }}
         </script>
     </head>
@@ -196,11 +189,10 @@ with tab2:
     </html>
     """
 
-    spoken_text = speech_component(html=html_code, height=180, default="")
+    components.html(html_code, height=180)
 
-    if spoken_text is not None and isinstance(spoken_text, str) and spoken_text.strip():
+    if spoken_text and spoken_text.strip():
         raw_text = spoken_text.strip()
-        
         if "last_processed_text" not in st.session_state or st.session_state["last_processed_text"] != raw_text:
             st.session_state["last_processed_text"] = raw_text
             
@@ -218,6 +210,9 @@ with tab2:
                 tts_voice_code = VOICE_OPTIONS[cabin_voice_label]
                 translated_audio = create_tts_audio(translated, tts_voice_code)
                 play_audio_autoplay_hidden(translated_audio)
+                
+                # Xóa query parameter sau khi xử lý xong
+                st.query_params.clear()
                 st.rerun()
             except Exception as e:
                 st.error(f"Lỗi phiên dịch: {e}")
@@ -241,8 +236,3 @@ with tab2:
                 st.success(f"⏱️ **[{item['time']}]** {item['translated']}")
         else:
             st.caption("Đang chờ bản dịch...")
-
-with tab3:
-    st.subheader("⚙️ Cấu hình Hệ thống")
-    st.text_input("API Key:", type="password")
-    st.slider("Độ nhạy ngắt câu (giây):", 0.5, 3.0, 1.5)
