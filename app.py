@@ -5,6 +5,7 @@ import edge_tts
 from deep_translator import GoogleTranslator
 import tempfile
 import os
+import io
 
 # 1. CẤU HÌNH TRANG
 st.set_page_config(
@@ -53,7 +54,7 @@ VOICE_OPTIONS = {
     "🇻🇳 Nam - Tiếng Việt (Nam Minh - Trang trọng / Giảng dạy)": "vi-VN-NamMinhNeural"
 }
 
-# 4. HÀM TẠO ÂM THANH
+# 4. HÀM TẠO ÂM THANH NEURAL TTS
 async def generate_edge_audio_async(text, voice_code, rate_str, pitch_str, output_path):
     communicate = edge_tts.Communicate(text, voice_code, rate=rate_str, pitch=pitch_str)
     await communicate.save(output_path)
@@ -143,14 +144,14 @@ with tab1:
 with tab2:
     st.subheader("Phiên dịch Hội nghị bằng Giọng nói (Micro & Phát lại âm thanh)")
     
-    # KIỂM TRA THƯ VIỆN MICRO HỆ THỐNG
     mic_ready = False
     try:
         import speech_recognition as sr
         from streamlit_mic_recorder import mic_recorder
+        from pydub import AudioSegment
         mic_ready = True
     except ImportError:
-        st.error("⚠️ Hệ thống chưa cài đủ gói `streamlit-mic-recorder` và `SpeechRecognition`. Vui lòng kiểm tra file `requirements.txt`.")
+        st.error("⚠️ Chưa cài đủ thư viện `streamlit-mic-recorder`, `SpeechRecognition` hoặc `pydub`. Kiểm tra file `requirements.txt`!")
 
     if mic_ready:
         col_lang1, col_lang2 = st.columns(2)
@@ -169,47 +170,53 @@ with tab2:
             key="conference_mic"
         )
 
-        if recorded_audio:
+        if recorded_audio and 'bytes' in recorded_audio and len(recorded_audio['bytes']) > 0:
             audio_bytes = recorded_audio['bytes']
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_wav:
-                tmp_wav.write(audio_bytes)
-                tmp_wav_path = tmp_wav.name
 
-            recognizer = sr.Recognizer()
-            with sr.AudioFile(tmp_wav_path) as source:
-                audio_data_rec = recognizer.record(source)
+            # Chuyển đổi file âm thanh từ Micro sang chuẩn WAV PCM nguyên bản bằng Pydub
+            wav_path = None
+            try:
+                audio_stream = io.BytesIO(audio_bytes)
+                audio_segment = AudioSegment.from_file(audio_stream)
+                
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_wav:
+                    audio_segment.export(tmp_wav.name, format="wav")
+                    wav_path = tmp_wav.name
 
-            if mode == "🇻🇳 Tiếng Việt ➔ 🇺🇸 Tiếng Anh":
-                src_code, tgt_code = "vi-VN", "en"
-                tts_voice = "en-US-GuyNeural"
-            else:
-                src_code, tgt_code = "en-US", "vi"
-                tts_voice = "vi-VN-NamMinhNeural"
+                recognizer = sr.Recognizer()
+                with sr.AudioFile(wav_path) as source:
+                    audio_data_rec = recognizer.record(source)
 
-            col_speech_left, col_speech_right = st.columns(2)
+                if mode == "🇻🇳 Tiếng Việt ➔ 🇺🇸 Tiếng Anh":
+                    src_code, tgt_code = "vi-VN", "en"
+                    tts_voice = "en-US-GuyNeural"
+                else:
+                    src_code, tgt_code = "en-US", "vi"
+                    tts_voice = "vi-VN-NamMinhNeural"
 
-            with col_speech_left:
-                st.markdown("### 1. Nhận diện giọng nói (STT)")
-                try:
+                col_speech_left, col_speech_right = st.columns(2)
+
+                with col_speech_left:
+                    st.markdown("### 1. Nhận diện giọng nói (STT)")
                     spoken_text = recognizer.recognize_google(audio_data_rec, language=src_code)
                     st.info(f"🗣️ **Nội dung vừa nói:** {spoken_text}")
 
-                    translated_text = GoogleTranslator(
-                        source=src_code[:2], 
-                        target=tgt_code
-                    ).translate(spoken_text)
+                translated_text = GoogleTranslator(
+                    source=src_code[:2], 
+                    target=tgt_code
+                ).translate(spoken_text)
 
-                    with col_speech_right:
-                        st.markdown("### 2. Bản dịch & Giọng đọc cabin (TTS)")
-                        st.success(f"🌐 **Bản dịch:** {translated_text}")
+                with col_speech_right:
+                    st.markdown("### 2. Bản dịch & Giọng đọc cabin (TTS)")
+                    st.success(f"🌐 **Bản dịch:** {translated_text}")
 
-                        translated_audio_bytes = create_tts_audio(translated_text, tts_voice)
-                        st.audio(translated_audio_bytes, format="audio/mp3", autoplay=True)
+                    translated_audio_bytes = create_tts_audio(translated_text, tts_voice)
+                    st.audio(translated_audio_bytes, format="audio/mp3", autoplay=True)
 
-                except sr.UnknownValueError:
-                    st.error("❌ Không thể nhận diện được giọng nói. Vui lòng nói rõ hơn và thử lại!")
-                except Exception as e:
-                    st.error(f"❌ Có lỗi trong quá trình xử lý: {e}")
-
-            if os.path.exists(tmp_wav_path):
-                os.remove(tmp_wav_path)
+            except sr.UnknownValueError:
+                st.warning("⚠️ Chưa nhận diện rõ giọng nói. Vui lòng nói rõ ràng hơn và bấm thử lại!")
+            except Exception as e:
+                st.error(f"❌ Lỗi xử lý âm thanh: {e}")
+            finally:
+                if wav_path and os.path.exists(wav_path):
+                    os.remove(wav_path)
