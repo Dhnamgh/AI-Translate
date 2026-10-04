@@ -6,7 +6,6 @@ import tempfile
 import os
 import io
 import time
-import re
 import base64
 
 # 1. CẤU HÌNH TRANG
@@ -38,11 +37,11 @@ def check_password():
 if not check_password():
     st.stop()
 
-# 3. QUẢN LÝ LỊCH SỬ DỊCH HỘI NGHỊ (DẠNG THEO DÕI NGƯỜI TRÌNH BÀY)
+# 3. QUẢN LÝ LỊCH SỬ DỊCH HỘI NGHỊ
 if "conference_logs" not in st.session_state:
     st.session_state["conference_logs"] = []
 
-# 4. DANH SÁCH GIỌNG ĐỌC AI
+# 4. DANH SÁCH GIỌNG ĐỌC AI PHIÊN DỊCH
 VOICE_OPTIONS = {
     "🇺🇸 Nam - Anh-Mỹ (Guy)": "en-US-GuyNeural",
     "🇺🇸 Nữ - Anh-Mỹ (Jenny)": "en-US-JennyNeural",
@@ -52,18 +51,15 @@ VOICE_OPTIONS = {
 }
 
 # 5. XỬ LÝ ÂM THANH NEURAL TTS
-async def generate_edge_audio_async(text, voice_code, rate_str, pitch_str, output_path):
-    communicate = edge_tts.Communicate(text, voice_code, rate=rate_str, pitch=pitch_str)
+async def generate_edge_audio_async(text, voice_code, output_path):
+    communicate = edge_tts.Communicate(text, voice_code)
     await communicate.save(output_path)
 
-def create_tts_audio(text, voice_code, speed_percent=0, pitch_hz=0):
-    rate_str = f"{'+' if speed_percent >= 0 else ''}{speed_percent}%"
-    pitch_str = f"{'+' if pitch_hz >= 0 else ''}{pitch_hz}Hz"
-    
+def create_tts_audio(text, voice_code):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
         tmp_path = tmp_file.name
     
-    asyncio.run(generate_edge_audio_async(text, voice_code, rate_str, pitch_str, tmp_path))
+    asyncio.run(generate_edge_audio_async(text, voice_code, tmp_path))
     
     with open(tmp_path, "rb") as f:
         audio_bytes = f.read()
@@ -73,20 +69,19 @@ def create_tts_audio(text, voice_code, speed_percent=0, pitch_hz=0):
         
     return audio_bytes
 
-# 6. HÀM DỊCH CHUẨN MÃ NGÔN NGỮ (SỬA LỖI TRONG ẢNH)
+# 6. HÀM DỊCH CHUẨN MÃ NGÔN NGỮ (SỬA LỖI MYMEMORY/GOOGLE TRONG ẢNH)
 def translate_robust(text, src_code, tgt_code):
-    # Rút gọn mã ngôn ngữ đầu vào về dạng gốc (vi, en)
     src_base = "vi" if "vi" in src_code.lower() else "en"
     tgt_base = "en" if "en" in tgt_code.lower() else "vi"
 
-    # Ưu tiên 1: DeepTranslator Google
+    # Thử Google Translator
     try:
         from deep_translator import GoogleTranslator
         return GoogleTranslator(source=src_base, target=tgt_base).translate(text)
     except Exception:
         pass
 
-    # Ưu tiên 2: MyMemory với mã đầy đủ (vi-VN, en-US) để không bị lỗi No support
+    # MyMemory dự phòng với mã đầy đủ (vi-VN, en-US)
     try:
         from deep_translator import MyMemoryTranslator
         src_mm = "vi-VN" if src_base == "vi" else "en-US"
@@ -95,7 +90,7 @@ def translate_robust(text, src_code, tgt_code):
     except Exception as e:
         raise Exception(f"Lỗi kết nối máy chủ dịch: {e}")
 
-# 7. PHÁT ÂM THANH DỊCH TỰ ĐỘNG KHÔNG CẦN TRÌNH PHÁT / KHÔNG CẦN TẢI FILE
+# 7. PHÁT ÂM THANH NGẦM CHO DỊCH HỘI NGHỊ
 def play_audio_autoplay(audio_bytes):
     b64 = base64.b64encode(audio_bytes).decode()
     md = f"""
@@ -111,7 +106,7 @@ st.title("🎙️ Hệ Thống Phiên Dịch & Chuyển Văn Bản")
 
 tab1, tab2 = st.tabs(["🏛️ Dịch Hội Nghị Trực Tiếp", "📝 Chuyển Văn Bản Thành Giọng Nói (TTS)"])
 
-# TAB 1: DỊCH HỘI NGHỊ (THEO DÕI NGƯỜI TRÌNH BÀY & SONG SONG 2 KHUNG)
+# ---------------- TAB 1: DỊCH HỘI NGHỊ ----------------
 with tab1:
     col_opt1, col_opt2 = st.columns(2)
     with col_opt1:
@@ -119,7 +114,6 @@ with tab1:
     with col_opt2:
         voice_choice = st.selectbox("Giọng đọc phiên dịch:", list(VOICE_OPTIONS.keys()))
 
-    # Thu âm phát biểu
     try:
         import speech_recognition as sr
         from streamlit_mic_recorder import mic_recorder
@@ -152,18 +146,15 @@ with tab1:
                         src_lang = "vi-VN" if direction == "Việt ➔ Anh" else "en-US"
                         tgt_lang = "en-US" if direction == "Việt ➔ Anh" else "vi-VN"
 
-                        # Nhận diện & dịch
                         original_text = rec.recognize_google(audio_data, language=src_lang)
                         translated_text = translate_robust(original_text, src_lang, tgt_lang)
 
-                        # Thêm vào nhật ký trình bày
                         st.session_state["conference_logs"].append({
                             "time": time.strftime("%H:%M:%S"),
                             "original": original_text,
                             "translated": translated_text
                         })
 
-                        # Tự động phát âm thanh bản dịch ngầm (không cần tải file)
                         translated_audio = create_tts_audio(translated_text, VOICE_OPTIONS[voice_choice])
                         play_audio_autoplay(translated_audio)
 
@@ -178,9 +169,7 @@ with tab1:
     st.write("---")
     st.subheader("📺 Khung Khớp Ngôn Ngữ Song Song (Live Stream)")
 
-    # 2 KHUNG NGÔN NGỮ SONG SONG THEO DÕI DIỄN GIẢ
     col_left, col_right = st.columns(2)
-    
     with col_left:
         st.markdown("### 🇻🇳 Ngôn ngữ nói (Tiếng Việt)")
         for item in reversed(st.session_state["conference_logs"]):
@@ -191,7 +180,8 @@ with tab1:
         for item in reversed(st.session_state["conference_logs"]):
             st.success(f"**[{item['time']}]** {item['translated']}")
 
-# TAB 2: CHỨC NĂNG TTS BAN ĐẦU CỦA THẦY (GIỮ NGUYÊN HOÀN TOÀN)
+
+# ---------------- TAB 2: KHÔI PHỤC NGUYÊN BẢN THEO ĐÚNG HÌNH ẢNH ----------------
 with tab2:
     st.subheader("Text to speech")
     text_input = st.text_area("Nhập văn bản cần đọc:", height=150)
