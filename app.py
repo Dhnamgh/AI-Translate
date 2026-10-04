@@ -6,46 +6,47 @@ import tempfile
 import os
 
 st.set_page_config(
-    page_title="Hệ thống Giọng đọc AI Chuẩn & Dịch hội nghị",
+    page_title="Hệ thống Giọng đọc AI & Dịch hội nghị",
     page_icon="🎙️",
     layout="wide"
 )
 
-# Danh sách các giọng đọc chuẩn AI theo từng ngôn ngữ
+# 1. Danh sách chi tiết các giọng đọc AI chất lượng cao (Phân loại theo phong cách & vùng miền)
 VOICE_OPTIONS = {
     "Tiếng Việt": {
-        "Nữ - Hoài Mỹ (Miền Bắc - Truyền cảm)": "vi-VN-HoaiMyNeural",
-        "Nam - Nam Minh (Miền Bắc - Trầm ấm)": "vi-VN-NamMinhNeural"
+        "Nữ - Hoài Mỹ (Miền Bắc - Chuẩn Báo cáo Khoa học / Thuyết trình)": "vi-VN-HoaiMyNeural",
+        "Nam - Nam Minh (Miền Bắc - Trầm ấm, Diễn thuyết / Giảng dạy)": "vi-VN-NamMinhNeural",
+        "Nữ - Hoài Mỹ (Phong cách Đọc tin tức / Hội thảo)": "vi-VN-HoaiMyNeural",
+        "Nam - Nam Minh (Phong cách Đọc báo / Thuyết minh)": "vi-VN-NamMinhNeural"
     },
     "Tiếng Anh (Mỹ)": {
-        "Nữ - Jenny (Tự nhiên, Chuẩn tin tức)": "en-US-JennyNeural",
-        "Nữ - Aria (Sâu lắng, Diễn cảm)": "en-US-AriaNeural",
-        "Nam - Guy (Truyền thông chuẩn)": "en-US-GuyNeural",
-        "Nam - Christopher (Trầm, Chuyên nghiệp)": "en-US-ChristopherNeural"
+        "Nữ - Jenny (Chuẩn Báo cáo / Thuyết trình Khoa học)": "en-US-JennyNeural",
+        "Nam - Guy (Chuyên nghiệp / Hội thảo Chuyên ngành)": "en-US-GuyNeural",
+        "Nữ - Aria (Trang trọng / Thuyết minh)": "en-US-AriaNeural",
+        "Nam - Christopher (Trầm, Thuyết trình Dự án)": "en-US-ChristopherNeural"
     },
     "Tiếng Anh (Anh)": {
-        "Nữ - Sonia (Giọng Hoàng gia Anh)": "en-GB-SoniaNeural",
-        "Nam - Ryan (Giọng Anh-Anh chuẩn)": "en-GB-RyanNeural"
+        "Nữ - Sonia (Giọng Академик / Học thuật chuẩn)": "en-GB-SoniaNeural",
+        "Nam - Ryan (Thuyết trình / Báo cáo)": "en-GB-RyanNeural"
     },
     "Tiếng Nhật": {
-        "Nữ - Nanami": "ja-JP-NanamiNeural",
-        "Nam - Keita": "ja-JP-KeitaNeural"
+        "Nữ - Nanami (Chuẩn Thuyết trình)": "ja-JP-NanamiNeural",
+        "Nam - Keita (Chuẩn Báo cáo)": "ja-JP-KeitaNeural"
     },
     "Tiếng Hàn": {
-        "Nữ - Sun-Hi": "ko-KR-SunHiNeural",
-        "Nam - InJoon": "ko-KR-InJoonNeural"
+        "Nữ - Sun-Hi (Thuyết trình)": "ko-KR-SunHiNeural",
+        "Nam - InJoon (Báo cáo)": "ko-KR-InJoonNeural"
     },
     "Tiếng Trung": {
-        "Nữ - Xiaoxiao": "zh-CN-XiaoxiaoNeural",
-        "Nam - Yunjian": "zh-CN-YunjianNeural"
+        "Nữ - Xiaoxiao (Chuẩn Trang trọng)": "zh-CN-XiaoxiaoNeural",
+        "Nam - Yunjian (Báo cáo Khoa học)": "zh-CN-YunjianNeural"
     },
     "Tiếng Pháp": {
-        "Nữ - Denise": "fr-FR-DeniseNeural",
-        "Nam - Henri": "fr-FR-HenriNeural"
+        "Nữ - Denise (Thuyết trình)": "fr-FR-DeniseNeural",
+        "Nam - Henri (Hội thảo)": "fr-FR-HenriNeural"
     }
 }
 
-# Mã ngôn ngữ dùng cho dịch thuật
 LANG_CODES = {
     "Tiếng Việt": "vi",
     "Tiếng Anh (Mỹ)": "en",
@@ -56,15 +57,19 @@ LANG_CODES = {
     "Tiếng Pháp": "fr"
 }
 
-async def generate_audio_file(text, voice, output_path):
-    communicate = edge_tts.Communicate(text, voice)
+# 2. Hàm tạo âm thanh bằng Edge-TTS có hỗ trợ tùy chỉnh tốc độ (rate)
+async def generate_audio_file(text, voice, rate_str, output_path):
+    communicate = edge_tts.Communicate(text, voice, rate=rate_str)
     await communicate.save(output_path)
 
-def create_tts_audio(text, voice):
+def create_tts_audio(text, voice, rate_percent):
+    # Quy đổi số % thành định dạng chuỗi của Edge-TTS (ví dụ: "+0%", "+20%", "-10%")
+    rate_str = f"{'+' if rate_percent >= 0 else ''}{rate_percent}%"
+    
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
         tmp_path = tmp_file.name
     
-    asyncio.run(generate_audio_file(text, voice, tmp_path))
+    asyncio.run(generate_audio_file(text, voice, rate_str, tmp_path))
     
     with open(tmp_path, "rb") as f:
         audio_bytes = f.read()
@@ -74,15 +79,16 @@ def create_tts_audio(text, voice):
         
     return audio_bytes
 
-st.title("🎙️ Hệ thống Giọng đọc AI Chuẩn & Dịch hội nghị")
+# --- GIAO DIỆN CHÍNH ---
+st.title("🎙️ Hệ thống Giọng đọc AI Chuyên nghiệp & Dịch hội nghị")
 
 tab1, tab2 = st.tabs(["📝 Chuyển Văn bản thành Giọng đọc (TTS)", "🌐 Dịch Hội nghị Trực tiếp"])
 
 # ==============================================================================
-# TAB 1: TEXT-TO-SPEECH CHUẨN
+# TAB 1: TEXT-TO-SPEECH (CÓ CHỈNH TỐC ĐỘ VÀ GIỌNG BÁO CÁO)
 # ==============================================================================
 with tab1:
-    st.subheader("Chuyển đổi văn bản thành giọng đọc AI chất lượng cao")
+    st.subheader("Chuyển đổi văn bản thành giọng đọc AI tự nhiên (Khoa học / Thuyết trình)")
     
     col_input, col_output = st.columns([1, 1], gap="large")
     
@@ -94,19 +100,29 @@ with tab1:
             key="tts_lang"
         )
         
-        # Chọn giọng đọc chi tiết theo ngôn ngữ
         voices_in_lang = VOICE_OPTIONS[selected_lang]
         selected_voice_label = st.selectbox(
-            "2. Chọn Giọng đọc AI chuẩn:",
+            "2. Chọn Giọng đọc & Phong cách:",
             list(voices_in_lang.keys()),
             index=0,
             key="tts_voice"
         )
         selected_voice_code = voices_in_lang[selected_voice_label]
         
+        # Thanh điều chỉnh tốc độ đọc
+        speech_rate = st.slider(
+            "3. Điều chỉnh Tốc độ đọc (%):",
+            min_value=-50,
+            max_value=50,
+            value=0,
+            step=5,
+            help="Báo cáo khoa học nên để khoảng -5% đến 0% để đọc rõ ràng, trang trọng.",
+            key="tts_rate"
+        )
+        
         text_input = st.text_area(
-            "3. Nhập văn bản cần đọc:",
-            height=180,
+            "4. Nhập nội dung bài báo cáo / thuyết trình / văn bản:",
+            height=200,
             placeholder="Nhập nội dung văn bản vào đây...",
             key="tts_text"
         )
@@ -119,9 +135,9 @@ with tab1:
             if not text_input.strip():
                 st.warning("⚠️ Vui lòng nhập nội dung văn bản trước khi tạo âm thanh!")
             else:
-                with st.spinner("⏳ Đang khởi tạo giọng đọc AI chuẩn..."):
+                with st.spinner("⏳ Đang khởi tạo giọng đọc AI chuyên nghiệp..."):
                     try:
-                        audio_data = create_tts_audio(text_input, selected_voice_code)
+                        audio_data = create_tts_audio(text_input, selected_voice_code, speech_rate)
                         st.success("✅ Tạo file âm thanh thành công!")
                         
                         st.audio(audio_data, format="audio/mp3")
@@ -129,7 +145,7 @@ with tab1:
                         st.download_button(
                             label="📥 Tải file MP3 về máy",
                             data=audio_data,
-                            file_name=f"giong_doc_{selected_voice_code}.mp3",
+                            file_name=f"bao_cao_ai_{selected_voice_code}.mp3",
                             mime="audio/mp3",
                             use_container_width=True
                         )
@@ -153,6 +169,15 @@ with tab2:
         tgt_voice_label = st.selectbox("Giọng đọc bản dịch:", list(VOICE_OPTIONS[target_lang].keys()), index=0, key="tgt_voice")
         tgt_voice_code = VOICE_OPTIONS[target_lang][tgt_voice_label]
 
+    conf_speech_rate = st.slider(
+        "Tốc độ đọc bản dịch (%):",
+        min_value=-30,
+        max_value=30,
+        value=0,
+        step=5,
+        key="conf_rate"
+    )
+
     st.markdown("---")
     
     speech_text = st.text_area(
@@ -174,7 +199,7 @@ with tab2:
                     tgt_code = LANG_CODES[target_lang]
                     
                     translated_text = GoogleTranslator(source=src_code, target=tgt_code).translate(speech_text)
-                    trans_audio_data = create_tts_audio(translated_text, tgt_voice_code)
+                    trans_audio_data = create_tts_audio(translated_text, tgt_voice_code, conf_speech_rate)
                     
                     col_orig, col_trans = st.columns(2)
                     with col_orig:
