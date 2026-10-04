@@ -5,6 +5,8 @@ import edge_tts
 from deep_translator import GoogleTranslator
 import tempfile
 import os
+import speech_recognition as sr
+from streamlit_mic_recorder import mic_recorder
 
 # 1. CẤU HÌNH TRANG
 st.set_page_config(
@@ -36,15 +38,13 @@ def check_password():
 if not check_password():
     st.stop()
 
-# 3. DANH SÁCH GIỌNG ĐỌC ĐẦY ĐỦ (ANH - MỸ, ANH - ANH & TIẾNG VIỆT)
+# 3. DANH SÁCH GIỌNG ĐỌC AI (NEURAL)
 VOICE_OPTIONS = {
-    # Giọng Tiếng Anh - Mỹ (US) - Chuẩn Báo cáo & Thuyết trình Quốc tế
+    # Giọng Tiếng Anh - Mỹ (US)
     "🇺🇸 Nam - Anh-Mỹ (Guy - Trầm ấm, Chuẩn Học thuật / Khoa học)": "en-US-GuyNeural",
     "🇺🇸 Nữ - Anh-Mỹ (Jenny - Truyền cảm, Tự nhiên)": "en-US-JennyNeural",
     "🇺🇸 Nữ - Anh-Mỹ (Aria - Trang trọng, Rõ chữ)": "en-US-AriaNeural",
     "🇺🇸 Nam - Anh-Mỹ (Christopher - Đọc báo cáo / Bản tin)": "en-US-ChristopherNeural",
-    "🇺🇸 Nam - Anh-Mỹ (Eric - Rõ ràng, Điềm tĩnh)": "en-US-EricNeural",
-    "🇺🇸 Nữ - Anh-Mỹ (Michelle - Nhẹ nhàng, Dễ nghe)": "en-US-MichelleNeural",
 
     # Giọng Tiếng Anh - Anh (UK)
     "🇬🇧 Nữ - Anh-Anh (Sonia - Giọng Anh chuẩn Quý phái)": "en-GB-SoniaNeural",
@@ -55,12 +55,12 @@ VOICE_OPTIONS = {
     "🇻🇳 Nam - Tiếng Việt (Nam Minh - Trang trọng / Giảng dạy)": "vi-VN-NamMinhNeural"
 }
 
-# 4. HÀM TẠO ÂM THANH NEURAL TTS
+# 4. HÀM TẠO ÂM THANH
 async def generate_edge_audio_async(text, voice_code, rate_str, pitch_str, output_path):
     communicate = edge_tts.Communicate(text, voice_code, rate=rate_str, pitch=pitch_str)
     await communicate.save(output_path)
 
-def create_tts_audio(text, voice_code, speed_percent, pitch_hz):
+def create_tts_audio(text, voice_code, speed_percent=0, pitch_hz=0):
     rate_str = f"{'+' if speed_percent >= 0 else ''}{speed_percent}%"
     pitch_str = f"{'+' if pitch_hz >= 0 else ''}{pitch_hz}Hz"
     
@@ -80,7 +80,7 @@ def create_tts_audio(text, voice_code, speed_percent, pitch_hz):
 # --- GIAO DIỆN ỨNG DỤNG ---
 st.title("AI Translate")
 
-tab1, tab2 = st.tabs(["📝 Chuyển Văn bản thành Giọng đọc (TTS)", "🌐 Dịch Hội nghị Trực tiếp"])
+tab1, tab2 = st.tabs(["📝 Chuyển Văn bản thành Giọng đọc (TTS)", "🎙️ Dịch Hội nghị Bằng Giọng nói"])
 
 # ==============================================================================
 # TAB 1: TEXT TO SPEECH
@@ -100,19 +100,13 @@ with tab1:
         
         speech_rate = st.slider(
             "2. Điều chỉnh Tốc độ đọc (%):",
-            min_value=-40,
-            max_value=40,
-            value=-5,
-            step=5,
+            min_value=-40, max_value=40, value=-5, step=5,
             help="Đọc bài báo khoa học / thuyết trình nên để khoảng -5% đến 0% để âm thanh rõ chữ."
         )
 
         pitch_val = st.slider(
             "3. Điều chỉnh Cao độ (Pitch Hz):",
-            min_value=-20,
-            max_value=20,
-            value=0,
-            step=2,
+            min_value=-20, max_value=20, value=0, step=2,
             help="Tăng/giảm độ trầm ấm của giọng đọc."
         )
 
@@ -134,9 +128,7 @@ with tab1:
                     try:
                         audio_data = create_tts_audio(text_input, voice_code, speech_rate, pitch_val)
                         st.success("✅ Tạo âm thanh thành công!")
-                        
                         st.audio(audio_data, format="audio/mp3")
-                        
                         st.download_button(
                             label="📥 Tải file MP3 về máy",
                             data=audio_data,
@@ -148,30 +140,74 @@ with tab1:
                         st.error(f"❌ Có lỗi xảy ra: {e}")
 
 # ==============================================================================
-# TAB 2: DỊCH HỘI NGHỊ TRỰC TIẾP
+# TAB 2: DỊCH HỘI NGHỊ TRỰC TIẾP (SPEECH TO SPEECH)
 # ==============================================================================
 with tab2:
-    st.subheader("Phiên dịch Hội nghị Trực tiếp")
+    st.subheader("Phiên dịch Hội nghị bằng Giọng nói (Micro & Phát lại âm thanh)")
     
     col_lang1, col_lang2 = st.columns(2)
     with col_lang1:
-        src_lang = st.selectbox("Ngôn ngữ gốc:", ["Tiếng Việt", "Tiếng Anh"], index=0)
-    with col_lang2:
-        tgt_lang = st.selectbox("Ngôn ngữ đích:", ["Tiếng Anh", "Tiếng Việt"], index=0)
-        
-    speech_text = st.text_area("Nội dung phát biểu:", height=120, placeholder="Nhập văn bản cần dịch...")
-    btn_translate = st.button("🔄 Dịch ngay", type="primary", use_container_width=True)
+        mode = st.selectbox(
+            "Hướng dịch phiên dịch:",
+            ["🇻🇳 Tiếng Việt ➔ 🇺🇸 Tiếng Anh", "🇺🇸 Tiếng Anh ➔ 🇻🇳 Tiếng Việt"]
+        )
     
-    if btn_translate and speech_text.strip():
-        with st.spinner("⏳ Đang xử lý dịch thuật..."):
+    st.write("---")
+    st.markdown("##### 🎙️ Bắt đầu phát biểu (Nhấn nút dưới đây để nói):")
+    
+    # Nút thu âm trực tiếp từ micro trình duyệt
+    recorded_audio = mic_recorder(
+        start_prompt="🔴 Bấm để nói (Start Recording)",
+        stop_prompt="⏹️ Bấm để dừng & Dịch (Stop Recording)",
+        key="conference_mic"
+    )
+
+    if recorded_audio:
+        # Lưu file âm thanh tạm thời từ Micro
+        audio_bytes = recorded_audio['bytes']
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_wav:
+            tmp_wav.write(audio_bytes)
+            tmp_wav_path = tmp_wav.name
+
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(tmp_wav_path) as source:
+            audio_data_rec = recognizer.record(source)
+
+        # Xác định ngôn ngữ nguồn/đích
+        if mode == "🇻🇳 Tiếng Việt ➔ 🇺🇸 Tiếng Anh":
+            src_code, tgt_code = "vi-VN", "en"
+            tts_voice = "en-US-GuyNeural" # Giọng đọc bản dịch tiếng Anh
+        else:
+            src_code, tgt_code = "en-US", "vi"
+            tts_voice = "vi-VN-NamMinhNeural" # Giọng đọc bản dịch tiếng Việt
+
+        col_speech_left, col_speech_right = st.columns(2)
+
+        with col_speech_left:
+            st.markdown("### 1. Nhận diện giọng nói (STT)")
             try:
-                lang_map = {"Tiếng Việt": "vi", "Tiếng Anh": "en"}
+                # 1. Chuyển Giọng nói -> Văn bản (Speech-to-Text)
+                spoken_text = recognizer.recognize_google(audio_data_rec, language=src_code)
+                st.info(f"🗣️ **Nội dung vừa nói:** {spoken_text}")
+
+                # 2. Dịch thuật (Translate)
                 translated_text = GoogleTranslator(
-                    source=lang_map[src_lang], 
-                    target=lang_map[tgt_lang]
-                ).translate(speech_text)
-                
-                st.markdown(f"**Bản dịch ({tgt_lang}):**")
-                st.success(translated_text)
+                    source=src_code[:2], 
+                    target=tgt_code
+                ).translate(spoken_text)
+
+                with col_speech_right:
+                    st.markdown("### 2. Bản dịch & Giọng đọc cabin (TTS)")
+                    st.success(f"🌐 **Bản dịch:** {translated_text}")
+
+                    # 3. Tạo Giọng đọc AI tự động phát lại (Text-to-Speech)
+                    translated_audio_bytes = create_tts_audio(translated_text, tts_voice)
+                    st.audio(translated_audio_bytes, format="audio/mp3", autoplay=True)
+
+            except sr.UnknownValueError:
+                st.error("❌ Không thể nhận diện được giọng nói. Vui lòng nói rõ hơn và thử lại!")
             except Exception as e:
-                st.error(f"❌ Lỗi dịch thuật: {e}")
+                st.error(f"❌ Có lỗi trong quá trình xử lý: {e}")
+
+        if os.path.exists(tmp_wav_path):
+            os.remove(tmp_wav_path)
