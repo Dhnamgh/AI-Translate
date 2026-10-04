@@ -160,11 +160,11 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (CLIENT-SIDE JS + MYMEMORY CHO DỊCH SONG SONG)
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (FIX CHUẨN GOOGLE GTX API TRONG JS)
 # ==============================================================================
 with tab2:
     st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    st.markdown("Hệ thống nhận diện giọng nói trực tiếp và hiển thị bản dịch song song realtime ngay lập tức[cite: 1, 14].")
+    st.markdown("Hệ thống nhận diện giọng nói trực tiếp và hiển thị bản dịch tiếng Anh chính xác bên trái, tiếng Việt bên phải.")
 
     col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
     with col_t2_src:
@@ -273,14 +273,27 @@ with tab2:
             if (!text || text.trim() === "") return "";
             let chunk = text.length > 350 ? text.substring(text.length - 350) : text;
 
-            // Sử dụng MyMemory API hỗ trợ CORS hoàn toàn trên trình duyệt
+            // Sử dụng Google gtx endpoint chuẩn để dịch trực tiếp sang tiếng Anh
             try {{
-                let url = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(chunk) + "&langpair={src_code_val}|{tgt_code_val}";
+                let url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_code_val}&tl={tgt_code_val}&dt=t&q=" + encodeURIComponent(chunk);
                 let response = await fetch(url);
                 if (response.ok) {{
                     let data = await response.json();
-                    if (data && data.responseData && data.responseData.translatedText) {{
-                        return data.responseData.translatedText;
+                    if (data && data[0]) {{
+                        let translated = data[0].map(item => item[0]).join("");
+                        if (translated && translated.trim() !== "") return translated;
+                    }}
+                }}
+            }} catch(e) {{}}
+
+            // Fallback sang MyMemory API nếu Google gtx bị chặn
+            try {{
+                let url2 = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(chunk) + "&langpair={src_code_val}|{tgt_code_val}";
+                let response2 = await fetch(url2);
+                if (response2.ok) {{
+                    let data2 = await response2.json();
+                    if (data2 && data2.responseData && data2.responseData.translatedText) {{
+                        return data2.responseData.translatedText;
                     }}
                 }}
             }} catch(e) {{}}
