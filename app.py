@@ -8,6 +8,7 @@ import os
 import io
 import time
 import base64
+import streamlit.components.v1 as components
 
 # 1. CẤU HÌNH TRANG
 st.set_page_config(
@@ -171,120 +172,179 @@ with tab1:
                         st.error(f"❌ Có lỗi xảy ra: {e}")
 
 # ==============================================================================
-# TAB 2: DỊCH HỘI NGHỊ TRỰC TIẾP (SỬA LỖI ĐỊNH DẠNG ÂM THANH & HIỂN THỊ SONG SONG)
+# TAB 2: DỊCH HỘI NGHỊ TRỰC TIẾP (NHẬN DIỆN & DỊCH THỜI GIAN THỰC REAL-TIME)
 # ==============================================================================
 with tab2:
-    st.subheader("Phiên dịch Hội nghị bằng Giọng nói (Micro & Phát lại âm thanh)")
+    st.subheader("Phiên dịch Hội nghị Trực tiếp (Tự động nhận diện & Dịch liên tục)")
     
     if "conference_logs" not in st.session_state:
         st.session_state["conference_logs"] = []
 
-    # KIỂM TRA THƯ VIỆN MICRO HỆ THỐNG & PYDUB
-    mic_ready = False
-    try:
-        import speech_recognition as sr
-        from streamlit_mic_recorder import mic_recorder
-        from pydub import AudioSegment
-        mic_ready = True
-    except ImportError:
-        st.error("⚠️ Hệ thống chưa cài đủ `streamlit-mic-recorder`, `SpeechRecognition` hoặc `pydub`. Vui lòng bổ sung vào requirements.txt!")
-
-    if mic_ready:
-        col_lang1, col_lang2, col_lang3 = st.columns([2, 2, 1])
-        with col_lang1:
-            mode = st.selectbox(
-                "Hướng dịch phiên dịch:",
-                ["🇻🇳 Tiếng Việt ➔ 🇺🇸 Tiếng Anh", "🇺🇸 Tiếng Anh ➔ 🇻🇳 Tiếng Việt"],
-                key="tab2_mode"
-            )
-        with col_lang2:
-            cabin_voice_label = st.selectbox(
-                "Giọng đọc cabin phiên dịch:",
-                list(VOICE_OPTIONS.keys()),
-                key="tab2_cabin_voice"
-            )
-        with col_lang3:
-            st.write("")
-            st.write("")
-            if st.button("🧹 Xóa nhật ký", use_container_width=True):
-                st.session_state["conference_logs"] = []
-                st.rerun()
-
-        st.write("---")
-        st.markdown("##### 🎙️ Bắt đầu phát biểu (Nhấn nút dưới đây để nói):")
-        
-        recorded_audio = mic_recorder(
-            start_prompt="🔴 Bấm để nói (Start Recording)",
-            stop_prompt="⏹️ Bấm để dừng & Dịch (Stop Recording)",
-            key="conference_mic"
+    col_lang1, col_lang2, col_lang3 = st.columns([2, 2, 1])
+    with col_lang1:
+        mode = st.selectbox(
+            "Hướng dịch phiên dịch:",
+            ["🇻🇳 Tiếng Việt ➔ 🇺🇸 Tiếng Anh", "🇺🇸 Tiếng Anh ➔ 🇻🇳 Tiếng Việt"],
+            key="tab2_mode"
         )
+    with col_lang2:
+        cabin_voice_label = st.selectbox(
+            "Giọng đọc cabin phiên dịch:",
+            list(VOICE_OPTIONS.keys()),
+            key="tab2_cabin_voice"
+        )
+    with col_lang3:
+        st.write("")
+        st.write("")
+        if st.button("🧹 Xóa nhật ký", use_container_width=True):
+            st.session_state["conference_logs"] = []
+            st.rerun()
 
-        if recorded_audio and 'bytes' in recorded_audio:
-            raw_audio_bytes = recorded_audio['bytes']
-            if len(raw_audio_bytes) > 2000:
-                with st.spinner("⏳ Đang giải mã âm thanh, nhận diện & dịch thuật..."):
-                    tmp_wav_path = None
-                    try:
-                        # CHUYỂN ĐỔI BẤT KỲ ĐỊNH DẠNG ÂM THANH NÀO VỀ PCM WAV CHUẨN
-                        audio_stream = io.BytesIO(raw_audio_bytes)
-                        audio_segment = AudioSegment.from_file(audio_stream)
-                        
-                        # Chuẩn hóa về 16kHz Mono WAV để Google STT nhận diện tốt nhất
-                        audio_segment = audio_segment.set_frame_rate(16000).set_channels(1)
-                        
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_wav:
-                            audio_segment.export(tmp_wav.name, format="wav")
-                            tmp_wav_path = tmp_wav.name
-
-                        recognizer = sr.Recognizer()
-                        with sr.AudioFile(tmp_wav_path) as source:
-                            audio_data_rec = recognizer.record(source)
-
-                        if mode == "🇻🇳 Tiếng Việt ➔ 🇺🇸 Tiếng Anh":
-                            src_code, tgt_code = "vi-VN", "en-US"
-                        else:
-                            src_code, tgt_code = "en-US", "vi-VN"
-
-                        spoken_text = recognizer.recognize_google(audio_data_rec, language=src_code)
-                        translated_text = translate_robust(spoken_text, src_code, tgt_code)
-
-                        # Lưu vào nhật ký tiến trình hội nghị
-                        st.session_state["conference_logs"].append({
-                            "time": time.strftime("%H:%M:%S"),
-                            "original": spoken_text,
-                            "translated": translated_text
-                        })
-
-                        # Tự động phát âm thanh bản dịch qua giọng AI
-                        tts_voice_code = VOICE_OPTIONS[cabin_voice_label]
-                        translated_audio_bytes = create_tts_audio(translated_text, tts_voice_code)
-                        play_audio_autoplay_hidden(translated_audio_bytes)
-
-                    except sr.UnknownValueError:
-                        st.error("❌ Không thể nhận diện được giọng nói. Vui lòng kiểm tra lại micro và nói rõ hơn!")
-                    except Exception as e:
-                        st.error(f"❌ Có lỗi trong quá trình xử lý: {e}")
-                    finally:
-                        if tmp_wav_path and os.path.exists(tmp_wav_path):
-                            os.remove(tmp_wav_path)
-
-        # HIỂN THỊ DẠNG GOOGLE TRANSLATE CONFERENCES (SONG SONG 2 CỘT)
-        st.write("---")
-        st.markdown("### 📺 Nhật Ký Khớp Ngôn Ngữ Trực Tiếp (Live Stream Log)")
+    # Xử lý văn bản gửi từ JS về Python
+    if "latest_speech_text" in st.session_state and st.session_state["latest_speech_text"]:
+        raw_text = st.session_state["latest_speech_text"].strip()
+        st.session_state["latest_speech_text"] = ""  # Reset sau khi lấy
         
-        col_hist_left, col_hist_right = st.columns(2)
-        with col_hist_left:
-            st.markdown("#### 🇻🇳 Ngôn ngữ phát biểu (Gốc)")
-            if st.session_state["conference_logs"]:
-                for item in reversed(st.session_state["conference_logs"]):
-                    st.info(f"⏱️ **[{item['time']}]** {item['original']}")
-            else:
-                st.caption("Chưa có lượt phát biểu nào...")
+        if raw_text:
+            src_lang = "vi-VN" if "Tiếng Việt" in mode.split("➔")[0] else "en-US"
+            tgt_lang = "en-US" if "Tiếng Anh" in mode.split("➔")[1] else "vi-VN"
+            
+            try:
+                translated = translate_robust(raw_text, src_lang, tgt_lang)
+                st.session_state["conference_logs"].append({
+                    "time": time.strftime("%H:%M:%S"),
+                    "original": raw_text,
+                    "translated": translated
+                })
+                
+                # Tự động phát âm thanh bản dịch
+                tts_voice_code = VOICE_OPTIONS[cabin_voice_label]
+                translated_audio = create_tts_audio(translated, tts_voice_code)
+                play_audio_autoplay_hidden(translated_audio)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Lỗi phiên dịch: {e}")
 
-        with col_hist_right:
-            st.markdown("#### 🇺🇸 Bản dịch cabin phiên dịch")
-            if st.session_state["conference_logs"]:
-                for item in reversed(st.session_state["conference_logs"]):
-                    st.success(f"⏱️ **[{item['time']}]** {item['translated']}")
-            else:
-                st.caption("Chưa có bản dịch...")
+    lang_code_js = "vi-VN" if "Tiếng Việt" in mode.split("➔")[0] else "en-US"
+
+    # COMPONENT WEB SPEECH API CHẠY CONTINUOUS THỜI GIAN THỰC
+    st.write("---")
+    st.markdown("##### 🎙️ Điều khiển Cabin Phiên dịch Trực tiếp:")
+    
+    html_code = f"""
+    <div style="font-family: sans-serif; text-align: center; padding: 10px; border: 1px solid #e0e0e0; border-radius: 10px; background-color: #f9f9f9;">
+        <button id="start-btn" onclick="startSpeech()" style="background-color: #28a745; color: white; border: none; padding: 12px 24px; font-size: 16px; font-weight: bold; border-radius: 5px; cursor: pointer; margin-right: 10px;">
+            🔴 BẮT ĐẦU PHÁT BIỂU (Bật Mic Liên Tục)
+        </button>
+        <button id="stop-btn" onclick="stopSpeech()" style="background-color: #dc3545; color: white; border: none; padding: 12px 24px; font-size: 16px; font-weight: bold; border-radius: 5px; cursor: pointer;" disabled>
+            ⏹️ DỪNG CABIN (Tắt Mic)
+        </button>
+        
+        <div id="status" style="margin-top: 15px; font-weight: bold; color: #555;">Đang chờ bắt đầu...</div>
+        <div id="live-preview" style="margin-top: 10px; font-style: italic; color: #0066cc; min-height: 30px; font-size: 18px;"></div>
+    </div>
+
+    <script>
+        var recognition;
+        var isListening = false;
+
+        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {{
+            document.getElementById('status').innerText = '❌ Trình duyệt không hỗ trợ Web Speech API. Vui lòng dùng Chrome hoặc Edge!';
+        }} else {{
+            var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = '{lang_code_js}';
+
+            recognition.onstart = function() {{
+                isListening = true;
+                document.getElementById('status').innerText = '🎙️ Đang lắng nghe trực tiếp... (Nói tự nhiên, không cần bấm Stop)';
+                document.getElementById('status').style.color = '#28a745';
+                document.getElementById('start-btn').disabled = true;
+                document.getElementById('stop-btn').disabled = false;
+            }};
+
+            recognition.onresult = function(event) {{
+                var interim_transcript = '';
+                var final_transcript = '';
+
+                for (var i = event.resultIndex; i < event.results.length; ++i) {{
+                    if (event.results[i].isFinal) {{
+                        final_transcript += event.results[i][0].transcript;
+                    }} else {{
+                        interim_transcript += event.results[i][0].transcript;
+                    }}
+                }}
+
+                if (interim_transcript !== '') {{
+                    document.getElementById('live-preview').innerText = '💬 Đang nói: ' + interim_transcript;
+                }}
+
+                if (final_transcript !== '') {{
+                    document.getElementById('live-preview').innerText = '✅ Đã ghi nhận: ' + final_transcript;
+                    
+                    // Gửi dữ liệu về cho Streamlit
+                    window.parent.postMessage({{
+                        type: 'streamlit:setComponentValue',
+                        value: final_transcript
+                    }}, '*');
+                }}
+            }};
+
+            recognition.onerror = function(event) {{
+                console.log('Speech recognition error: ' + event.error);
+            }};
+
+            recognition.onend = function() {{
+                if (isListening) {{
+                    recognition.start(); // Tự động khởi động lại để đảm bảo mic luôn bật liên tục
+                }} else {{
+                    document.getElementById('status').innerText = '⏹️ Đã dừng cabin phiên dịch.';
+                    document.getElementById('status').style.color = '#dc3545';
+                    document.getElementById('start-btn').disabled = false;
+                    document.getElementById('stop-btn').disabled = true;
+                    document.getElementById('live-preview').innerText = '';
+                }}
+            }};
+        }}
+
+        function startSpeech() {{
+            if (recognition) {{
+                isListening = true;
+                recognition.start();
+            }}
+        }}
+
+        function stopSpeech() {{
+            if (recognition) {{
+                isListening = false;
+                recognition.stop();
+            }}
+        }}
+    </script>
+    """
+    
+    # Nhận dữ liệu phát biểu từ HTML5 Component
+    st_speech_val = components.html(html_code, height=180)
+
+    # HIỂN THỊ SONG SONG 2 CỘT DẠNG GOOGLE TRANSLATE CONFERENCES
+    st.write("---")
+    st.markdown("### 📺 Nhật Ký Khớp Ngôn Ngữ Trực Tiếp (Live Stream Log)")
+    
+    col_hist_left, col_hist_right = st.columns(2)
+    with col_hist_left:
+        st.markdown("#### 🇻🇳 Ngôn ngữ phát biểu (Gốc)")
+        if st.session_state["conference_logs"]:
+            for item in reversed(st.session_state["conference_logs"]):
+                st.info(f"⏱️ **[{item['time']}]** {item['original']}")
+        else:
+            st.caption("Đang chờ bài phát biểu...")
+
+    with col_hist_right:
+        st.markdown("#### 🇺🇸 Bản dịch cabin phiên dịch")
+        if st.session_state["conference_logs"]:
+            for item in reversed(st.session_state["conference_logs"]):
+                st.success(f"⏱️ **[{item['time']}]** {item['translated']}")
+        else:
+            st.caption("Đang chờ bản dịch...")
