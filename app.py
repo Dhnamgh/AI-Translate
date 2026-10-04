@@ -160,11 +160,11 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (FIX CHUẨN GOOGLE GTX API TRONG JS)
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (DÙNG JSONP KHÔNG BỊ CORS)
 # ==============================================================================
 with tab2:
     st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    st.markdown("Hệ thống nhận diện giọng nói trực tiếp và hiển thị bản dịch tiếng Anh chính xác bên trái, tiếng Việt bên phải.")
+    st.markdown("Hệ thống nhận diện giọng nói trực tiếp và hiển thị bản dịch song song realtime.")
 
     col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
     with col_t2_src:
@@ -250,12 +250,12 @@ with tab2:
         <div id="status-badge">Trạng thái: Sẵn sàng kết nối Microphone...</div>
         
         <div class="cabin-grid">
-            <!-- Cột trái: Văn bản dịch -->
+            <!-- Cột trái: Bản dịch đích -->
             <div class="cabin-panel">
                 <div class="panel-title" style="color: #28a745;">🌐 Bản dịch Cabin ({tgt_lang_name_t2})</div>
                 <div id="live-translated-text" class="panel-content" style="color: #28a745; font-weight: bold;">[Đang chờ bản dịch...]</div>
             </div>
-            <!-- Cột phải: Văn bản gốc -->
+            <!-- Cột phải: Bản gốc tiếng Việt -->
             <div class="cabin-panel">
                 <div class="panel-title" style="color: #0056b3;">🎙️ Phát biểu Gốc ({src_lang_name_t2})</div>
                 <div id="live-original-text" class="panel-content" style="color: #0056b3; font-style: italic;">[Chưa có giọng nói...]</div>
@@ -269,36 +269,48 @@ with tab2:
         var historyOriginal = "";
         var historyTranslated = "";
 
-        async function quickTranslate(text) {{
-            if (!text || text.trim() === "") return "";
-            let chunk = text.length > 350 ? text.substring(text.length - 350) : text;
+        // Dịch bằng JSONP bypass triệt để lỗi CORS của trình duyệt
+        function translateJSONP(text) {{
+            return new Promise((resolve) => {{
+                if (!text || text.trim() === "") return resolve("");
+                let chunk = text.length > 250 ? text.substring(text.length - 250) : text;
+                let callbackName = "cb_" + Math.round(100000 * Math.random());
+                
+                let script = document.createElement("script");
+                let url = "https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl={src_code_val}&tl={tgt_code_val}&q=" + encodeURIComponent(chunk) + "&callback=" + callbackName;
+                
+                let timeoutId = setTimeout(() => {{
+                    delete window[callbackName];
+                    if (script.parentNode) script.parentNode.removeChild(script);
+                    resolve("...");
+                }}, 3500);
 
-            // Sử dụng Google gtx endpoint chuẩn để dịch trực tiếp sang tiếng Anh
-            try {{
-                let url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_code_val}&tl={tgt_code_val}&dt=t&q=" + encodeURIComponent(chunk);
-                let response = await fetch(url);
-                if (response.ok) {{
-                    let data = await response.json();
-                    if (data && data[0]) {{
-                        let translated = data[0].map(item => item[0]).join("");
-                        if (translated && translated.trim() !== "") return translated;
+                window[callbackName] = function(data) {{
+                    clearTimeout(timeoutId);
+                    delete window[callbackName];
+                    if (script.parentNode) script.parentNode.removeChild(script);
+                    try {{
+                        if (Array.isArray(data) && data[0]) {{
+                            resolve(data[0]);
+                        }} else if (typeof data === "string") {{
+                            resolve(data);
+                        }} else {{
+                            resolve("...");
+                        }}
+                    }} catch (e) {{
+                        resolve("...");
                     }}
-                }}
-            }} catch(e) {{}}
+                }};
 
-            // Fallback sang MyMemory API nếu Google gtx bị chặn
-            try {{
-                let url2 = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(chunk) + "&langpair={src_code_val}|{tgt_code_val}";
-                let response2 = await fetch(url2);
-                if (response2.ok) {{
-                    let data2 = await response2.json();
-                    if (data2 && data2.responseData && data2.responseData.translatedText) {{
-                        return data2.responseData.translatedText;
-                    }}
-                }}
-            }} catch(e) {{}}
-
-            return chunk;
+                script.src = url;
+                script.onerror = function() {{
+                    clearTimeout(timeoutId);
+                    delete window[callbackName];
+                    if (script.parentNode) script.parentNode.removeChild(script);
+                    resolve("...");
+                }};
+                document.body.appendChild(script);
+            }});
         }}
 
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {{
@@ -312,7 +324,7 @@ with tab2:
 
             recognition.onstart = function() {{
                 isRunning = true;
-                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Song song realtime)...';
+                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Dịch song song realtime)...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
@@ -331,13 +343,14 @@ with tab2:
 
                 if (finalStr.trim() !== "") {{
                     historyOriginal += finalStr;
-                    let translatedChunk = await quickTranslate(finalStr);
-                    historyTranslated += translatedChunk + " ";
-
                     let origBox = document.getElementById('live-original-text');
                     origBox.innerText = historyOriginal;
                     origBox.scrollTop = origBox.scrollHeight;
 
+                    let translatedChunk = await translateJSONP(finalStr);
+                    if (translatedChunk && translatedChunk !== "...") {{
+                        historyTranslated += translatedChunk + " ";
+                    }}
                     let transBox = document.getElementById('live-translated-text');
                     transBox.innerText = historyTranslated;
                     transBox.scrollTop = transBox.scrollHeight;
@@ -346,9 +359,11 @@ with tab2:
                     let origBox = document.getElementById('live-original-text');
                     origBox.innerText = previewOrig;
                     
-                    let previewTrans = await quickTranslate(interim);
-                    let transBox = document.getElementById('live-translated-text');
-                    transBox.innerText = historyTranslated + previewTrans;
+                    let previewTrans = await translateJSONP(interim);
+                    if (previewTrans && previewTrans !== "...") {{
+                        let transBox = document.getElementById('live-translated-text');
+                        transBox.innerText = historyTranslated + previewTrans;
+                    }}
                 }}
             }};
 
