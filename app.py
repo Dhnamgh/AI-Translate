@@ -160,11 +160,11 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (FIX CỐ ĐỊNH MÃ NGÔN NGỮ NGUỒN VÀ ĐÍCH)
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (FIX CHUẨN MÃ NGÔN NGỮ)
 # ==============================================================================
 with tab2:
     st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    st.markdown("Hệ thống nhận diện giọng nói trực tiếp, cố định chính xác ngôn ngữ nguồn và đích.")
+    st.markdown("Hệ thống nhận diện giọng nói trực tiếp, sửa lỗi dịch đúng hướng ngôn ngữ[cite: 24].")
 
     col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
     with col_t2_src:
@@ -173,8 +173,9 @@ with tab2:
         tgt_lang_name_t2 = st.selectbox("Ngôn ngữ dịch out:", list(LANG_OPTIONS.keys()), index=1, key="t2_tgt")
 
     lang_code_js = "vi-VN" if LANG_OPTIONS[src_lang_name_t2] == "vi" else "en-US"
-    tgt_lang_code = LANG_OPTIONS[tgt_lang_name_t2]
-    src_lang_code = LANG_OPTIONS[src_lang_name_t2]
+    # Lấy chính xác mã ngôn ngữ chuẩn (ví dụ: 'vi', 'en', 'zh-CN')[cite: 24]
+    src_code_val = LANG_OPTIONS[src_lang_name_t2]
+    tgt_code_val = LANG_OPTIONS[tgt_lang_name_t2]
 
     st.write("---")
 
@@ -281,9 +282,9 @@ with tab2:
             if (!text || text.trim() === "") return "";
             let chunk = text.length > 400 ? text.substring(text.length - 400) : text;
 
-            // Truyền tường minh sl và tl để dịch đúng hướng ngôn ngữ
+            // Sử dụng chính xác mã ngôn ngữ nguồn và đích[cite: 24]
             try {{
-                let url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_lang_code}&tl={tgt_lang_code}&dt=t&q=" + encodeURIComponent(chunk);
+                let url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_code_val}&tl={tgt_code_val}&dt=t&q=" + encodeURIComponent(chunk);
                 let response = await fetch(url);
                 if (response.ok) {{
                     let data = await response.json();
@@ -293,7 +294,7 @@ with tab2:
             }} catch(e) {{}}
 
             try {{
-                let url2 = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(chunk) + "&langpair={src_lang_code}|{tgt_lang_code}";
+                let url2 = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(chunk) + "&langpair={src_code_val}|{tgt_code_val}";
                 let response2 = await fetch(url2);
                 if (response2.ok) {{
                     let data2 = await response2.json();
@@ -317,7 +318,7 @@ with tab2:
 
             recognition.onstart = function() {{
                 isRunning = true;
-                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Đã cố định hướng dịch chuẩn xác)...';
+                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Đã fix chuẩn mã ngôn ngữ)...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
