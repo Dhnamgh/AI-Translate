@@ -160,10 +160,10 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (FIX TỐC ĐỘ SIÊU NHANH & MỞ RỘNG KHUNG)
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (FIX TỰ ĐỘNG CUỘN XUỐNG ĐÁY)
 # ==============================================================================
 with tab2:
-    st.subheader("🎙️️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
+    st.subheader("🎙 Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
     st.markdown("Hệ thống nhận diện giọng nói và dịch realtime tốc độ cao, hiển thị đuổi theo từng chữ một.")
 
     col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
@@ -223,8 +223,8 @@ with tab2:
                 border-radius: 8px;
                 padding: 20px;
                 text-align: left;
-                height: 480px; /* Tăng chiều cao cố định để không bị cắt chữ */
-                overflow-y: auto; /* Tự động xuất hiện thanh cuộn */
+                height: 480px; 
+                overflow-y: auto; 
             }}
             .panel-title {{
                 font-weight: bold;
@@ -252,11 +252,12 @@ with tab2:
         <div id="status-badge">Trạng thái: Sẵn sàng kết nối Microphone...</div>
         
         <div class="cabin-grid">
-            <div class="cabin-panel">
+            <!-- Thêm ID cho khung chứa để điều khiển thanh cuộn -->
+            <div class="cabin-panel" id="scroll-trans">
                 <div class="panel-title">🌐 Bản dịch Cabin ({tgt_lang_name_t2})</div>
                 <div id="live-translated-text" class="panel-content">[Đang chờ bản dịch...]</div>
             </div>
-            <div class="cabin-panel">
+            <div class="cabin-panel" id="scroll-orig">
                 <div class="panel-title">🎙️ Phát biểu Gốc ({src_lang_name_t2})</div>
                 <div id="live-original-text" class="panel-content">[Chưa có giọng nói...]</div>
             </div>
@@ -270,6 +271,14 @@ with tab2:
         var historyTranslated = "";
         var translationTimer;
 
+        // Hàm hỗ trợ tự động cuộn xuống dưới cùng cho cả 2 khung
+        function scrollToBottom() {{
+            let pTrans = document.getElementById('scroll-trans');
+            let pOrig = document.getElementById('scroll-orig');
+            if(pTrans) pTrans.scrollTop = pTrans.scrollHeight;
+            if(pOrig) pOrig.scrollTop = pOrig.scrollHeight;
+        }}
+
         async function fetchTranslation(text) {{
             if (!text || text.trim() === "") return "";
             let chunk = text.length > 500 ? text.substring(text.length - 500) : text;
@@ -277,7 +286,6 @@ with tab2:
             let src = '{src_code_val}';
             let tgt = '{tgt_code_val}';
 
-            // Ưu tiên 1: Google Translate GTX nhanh nhất
             try {{
                 let res1 = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${{src}}&tl=${{tgt}}&dt=t&q=${{q}}`);
                 if (res1.ok) {{
@@ -286,7 +294,6 @@ with tab2:
                 }}
             }} catch(e) {{}}
 
-            // Ưu tiên 2: API nội bộ Chrome (vượt CORS)
             try {{
                 let res2 = await fetch(`https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${{src}}&tl=${{tgt}}&q=${{q}}`);
                 if (res2.ok) {{
@@ -296,7 +303,6 @@ with tab2:
                 }}
             }} catch(e) {{}}
 
-            // Ưu tiên 3: Dùng Proxy AllOrigins để đổi IP nếu bị Google chặn
             try {{
                 let gtxUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${{src}}&tl=${{tgt}}&dt=t&q=${{q}}`;
                 let res3 = await fetch(`https://api.allorigins.win/get?url=${{encodeURIComponent(gtxUrl)}}`);
@@ -321,7 +327,7 @@ with tab2:
 
             recognition.onstart = function() {{
                 isRunning = true;
-                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Tốc độ Realtime cực nhanh)...';
+                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Tự động trượt trang mượt mà)...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
@@ -341,12 +347,10 @@ with tab2:
                 let origBox = document.getElementById('live-original-text');
                 let transBox = document.getElementById('live-translated-text');
 
-                // Cập nhật văn bản gốc ngay lập tức
                 origBox.innerText = historyOriginal + finalStr + interim;
-                origBox.scrollTop = origBox.scrollHeight; // Tự động cuộn xuống dòng cuối
+                scrollToBottom(); 
 
                 if (finalStr.trim() !== "") {{
-                    // Dịch ngay khi chốt câu
                     clearTimeout(translationTimer);
                     historyOriginal += finalStr;
 
@@ -355,22 +359,20 @@ with tab2:
                             historyTranslated += translated + " ";
                         }}
                         transBox.innerText = historyTranslated;
-                        transBox.scrollTop = transBox.scrollHeight;
+                        scrollToBottom();
                     }});
-
                 }} 
                 
                 if (interim.trim() !== "") {{
-                    // Dịch đuổi theo siêu tốc (Giảm thời gian chờ xuống 0.4s để song song với giọng nói)
                     clearTimeout(translationTimer);
                     translationTimer = setTimeout(() => {{
                         fetchTranslation(interim).then(translatedInterim => {{
                             if (translatedInterim && !translatedInterim.includes("[Hệ thống")) {{
                                 transBox.innerText = historyTranslated + translatedInterim;
-                                transBox.scrollTop = transBox.scrollHeight;
+                                scrollToBottom();
                             }}
                         }});
-                    }}, 400); // Ngưng nhẹ 0.4s là dịch lập tức
+                    }}, 400); 
                 }}
             }};
 
@@ -403,5 +405,4 @@ with tab2:
     </html>
     """
 
-    # Đã tăng height của component từ 380 lên 650 để bao trọn cả khung chữ dài
     components.html(cabin_html_code, height=650)
