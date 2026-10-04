@@ -1,10 +1,12 @@
 import time
 import json
+import asyncio
 import urllib.parse
 import urllib.request
 import streamlit as st
 import streamlit.components.v1 as components
 from deep_translator import MyMemoryTranslator
+import edge_tts
 
 # ------------------------------------------------------------------------------
 # CẤU HÌNH GIAO DIỆN & DANH SÁCH NGÔN NGỮ
@@ -26,19 +28,19 @@ LANG_OPTIONS = {
     "🇹🇭 Tiếng Thái": "th"
 }
 
-VOICE_OPTIONS = {
-    "us Nam - Anh-Mỹ (Guy - Trầm ấm)": "en",
-    "us Nữ - Anh-Mỹ (Jenny - Truyền cảm)": "en",
-    "vn Nam - Tiếng Việt (Nam Minh)": "vi",
-    "vn Nữ - Tiếng Việt (Hoài My)": "vi"
+# Ánh xạ chính xác giọng đọc Neural Nam/Nữ của Edge TTS
+VOICE_MAP = {
+    "us Nam - Anh-Mỹ (Guy - Trầm ấm)": "en-US-GuyNeural",
+    "us Nữ - Anh-Mỹ (Jenny - Truyền cảm)": "en-US-JennyNeural",
+    "vn Nam - Tiếng Việt (Nam Minh)": "vi-VN-NamMinhNeural",
+    "vn Nữ - Tiếng Việt (Hoài My)": "vi-VN-HoaiMyNeural"
 }
 
 # ------------------------------------------------------------------------------
-# HÀM DỊCH THUẬT AN TOÀN (DÙNG MYMEMORY - KHÔNG BAO GIỜ BỊ 429)
+# HÀM DỊCH THUẬT AN TOÀN (MYMEMORY)
 # ------------------------------------------------------------------------------
 @st.cache_data(show_spinner=False, ttl=3600)
 def translate_stable(text, src_code, tgt_code):
-    """Sử dụng MyMemoryTranslator chống triệt để lỗi 429 của Google"""
     if not text.strip():
         return ""
     
@@ -47,7 +49,6 @@ def translate_stable(text, src_code, tgt_code):
     if src == "zh-cn": src = "zh-CN"
     if tgt == "zh-cn": tgt = "zh-CN"
 
-    # Cách 1: Sử dụng MyMemoryTranslator chuẩn
     try:
         translator = MyMemoryTranslator(source=src, target=tgt)
         res = translator.translate(text)
@@ -56,7 +57,6 @@ def translate_stable(text, src_code, tgt_code):
     except Exception:
         pass
 
-    # Cách 2: Gọi trực tiếp API dự phòng qua URL
     try:
         url = f"https://api.mymemory.translated.net/get?q={urllib.parse.quote(text)}&langpair={src}|{tgt}"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -68,6 +68,25 @@ def translate_stable(text, src_code, tgt_code):
         return f"Không thể kết nối dịch thuật: {str(e)}"
 
     return "Không thể dịch được văn bản lúc này. Vui lòng thử lại."
+
+# ------------------------------------------------------------------------------
+# HÀM TẠO FILE AUDIO MP3 BẰNG EDGE-TTS
+# ------------------------------------------------------------------------------
+async def generate_tts_async(text, voice_key, speed_rate, output_filename):
+    voice_name = VOICE_MAP.get(voice_key, "en-US-GuyNeural")
+    # Chuyển đổi tốc độ từ số (ví dụ 1.0) sang định dạng phần trăm edge-tts (+0%, +50%, -30%)
+    percent = int((speed_rate - 1.0) * 100)
+    rate_str = f"+{percent}%" if percent >= 0 else f"{percent}%"
+    
+    communicate = edge_tts.Communicate(text, voice_name, rate=rate_str)
+    await communicate.save(output_filename)
+
+def create_mp3(text, voice_key, speed_rate, filename="translated_output.mp3"):
+    try:
+        asyncio.run(generate_tts_async(text, voice_key, speed_rate, filename))
+        return True
+    except Exception:
+        return False
 
 # ------------------------------------------------------------------------------
 # XÁC THỰC MẬT KHẨU
@@ -107,7 +126,12 @@ with tab1:
     with col_t1_tgt:
         tgt_lang_name_t1 = st.selectbox("Ngôn ngữ đích:", list(LANG_OPTIONS.keys()), index=1, key="t1_tgt")
     with col_t1_voice:
-        voice_t1_label = st.selectbox("Giọng đọc phát âm:", list(VOICE_OPTIONS.keys()), key="t1_voice")
+        voice_t1_label = st.selectbox("Giọng đọc phát âm:", list(VOICE_MAP.keys()), key="t1_voice")
+
+    # Thêm điều khiển tốc độ đọc và nút bấm
+    col_rate, col_blank = st.columns([2, 4])
+    with col_rate:
+        speed_option = st.slider("Tốc độ đọc (x lần):", min_value=0.5, max_value=2.0, value=1.0, step=0.1, key="t1_speed")
 
     input_text = st.text_area("Nhập văn bản cần dịch:", height=150, placeholder="Dán văn bản cần dịch vào đây...")
     
@@ -117,37 +141,48 @@ with tab1:
 
     if translate_clicked:
         if input_text.strip():
-            with st.spinner("Đang dịch thuật văn bản..."):
+            with st.spinner("Đang dịch và tạo âm thanh chất lượng cao..."):
                 src_code = LANG_OPTIONS[src_lang_name_t1]
                 tgt_code = LANG_OPTIONS[tgt_lang_name_t1]
                 
                 res_text = translate_stable(input_text, src_code, tgt_code)
+                st.session_state["last_translation"] = res_text
                 
-                st.markdown("### Kết quả dịch:")
-                st.success(res_text)
-                
-                # Đọc phát âm nếu không có lỗi
-                if "Không thể kết nối" not in res_text and "Không thể dịch" not in res_text:
-                    tts_code = LANG_OPTIONS[tgt_lang_name_t1]
-                    clean_res = res_text.replace("'", "\\'").replace('"', '\\"').replace("\n", " ")
-                    components.html(f"""
-                        <script>
-                            if ('speechSynthesis' in window) {{
-                                var msg = new SpeechSynthesisUtterance('{clean_res}');
-                                msg.lang = '{tts_code}';
-                                window.speechSynthesis.speak(msg);
-                            }}
-                        </script>
-                    """, height=0)
+                # Tạo file MP3 ngay lập tức
+                audio_file = "translated_speech.mp3"
+                success_audio = create_mp3(res_text, voice_t1_label, speed_option, audio_file)
+                st.session_state["audio_ready"] = success_audio
         else:
             st.warning("Vui lòng nhập văn bản cần dịch.")
+
+    # Hiển thị kết quả và phát/tải âm thanh nếu đã có trong session_state
+    if "last_translation" in st.session_state and st.session_state["last_translation"]:
+        st.markdown("### Kết quả dịch:")
+        st.success(st.session_state["last_translation"])
+        
+        if st.session_state.get("audio_ready", False):
+            st.markdown("##### 🔊 Nghe & Tải file âm thanh MP3:")
+            audio_path = "translated_speech.mp3"
+            try:
+                with open(audio_path, "rb") as f:
+                    audio_bytes = f.read()
+                st.audio(audio_bytes, format="audio/mp3")
+                st.download_button(
+                    label="📥 Tải xuống file MP3",
+                    data=audio_bytes,
+                    file_name="phien_dich_ai.mp3",
+                    mime="audio/mp3",
+                    key="download_mp3_btn"
+                )
+            except Exception:
+                pass
 
 # ==============================================================================
 # TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP
 # ==============================================================================
 with tab2:
     st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Chế độ Cabin Liên tục)")
-    st.markdown("Micro được giữ mở liên tục, tự động bắt các đoạn ngắt câu để dịch và đọc âm thanh song song.")
+    st.markdown("Micro được giữ mở liên tục, tự động bắt các đoạn ngắt câu để dịch và hiển thị nhật ký.")
 
     col_t2_src, col_t2_tgt, col_t2_voice, col_t2_clear = st.columns([2, 2, 2, 1])
     with col_t2_src:
@@ -155,7 +190,7 @@ with tab2:
     with col_t2_tgt:
         tgt_lang_name_t2 = st.selectbox("Ngôn ngữ dịch out:", list(LANG_OPTIONS.keys()), index=1, key="t2_tgt")
     with col_t2_voice:
-        cabin_voice_label = st.selectbox("Giọng đọc cabin:", list(VOICE_OPTIONS.keys()), key="t2_voice")
+        cabin_voice_label = st.selectbox("Giọng đọc cabin:", list(VOICE_MAP.keys()), key="t2_voice")
     with col_t2_clear:
         st.write("")
         st.write("")
@@ -171,7 +206,7 @@ with tab2:
 
     if spoken_text and spoken_text.strip():
         raw_text = spoken_text.strip()
-        if "last_cabin_text" not in st.session_state or st.session_state["last_cabin_text"] != raw_text:
+        if "last_cabin_text" not in st.session_state || st.session_state["last_cabin_text"] != raw_text:
             st.session_state["last_cabin_text"] = raw_text
             
             src_code_val = LANG_OPTIONS[src_lang_name_t2]
@@ -294,7 +329,7 @@ with tab2:
                     clearTimeout(silenceTimer);
                     silenceTimer = setTimeout(function() {{
                         if (accumulatedSentence.trim() !== "") {{
-                            document.getElementById('live-box').innerText = '⚡ Đang dịch và xử lý cabin...';
+                            document.getElementById('live-box').innerText = '⚡ Đang dịch thuật...';
                             updateStreamlitInput(accumulatedSentence);
                             accumulatedSentence = "";
                         }}
