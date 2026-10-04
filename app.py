@@ -8,7 +8,7 @@ import streamlit.components.v1 as components
 # ------------------------------------------------------------------------------
 # CẤU HÌNH GIAO DIỆN & DANH SÁCH NGÔN NGỮ
 # ------------------------------------------------------------------------------
-st.set_page_config(page_title="AI Translate Cabin", layout="wide")
+st.set_page_config(page_title="AI Translate Cabin Pro", layout="wide")
 
 LANG_OPTIONS = {
     "🇻🇳 Tiếng Việt": "vi",
@@ -33,45 +33,53 @@ VOICE_OPTIONS = {
 }
 
 # ------------------------------------------------------------------------------
-# HÀM DỊCH & TTS BẰNG THƯ VIỆN CHUẨN PYTHON (KHÔNG BỊ LỖI THIẾU MODULE)
+# HÀM DỊCH CHỐNG QUÁ TẢI (RATE LIMIT 429) & CACHE
 # ------------------------------------------------------------------------------
 from deep_translator import GoogleTranslator
 
+@st.cache_data(show_spinner=False, ttl=3600)
 def translate_robust(text, src_lang, tgt_lang):
-    """Dịch văn bản sử dụng deep-translator chống rate-limit 429"""
+    """Dịch văn bản tối ưu có cơ chế cache và chia nhỏ nếu văn bản dài"""
     if not text.strip():
         return ""
-    try:
-        # Chuyển đổi mã ngôn ngữ chuẩn cho deep-translator
-        src = src_lang.lower()
-        tgt = tgt_lang.lower()
-        
-        # Xử lý ngoại lệ mã ngôn ngữ
-        if src == "zh-cn": src = "zh-CN"
-        if tgt == "zh-cn": tgt = "zh-CN"
+    
+    src = src_lang.lower()
+    tgt = tgt_lang.lower()
+    if src == "zh-cn": src = "zh-CN"
+    if tgt == "zh-cn": tgt = "zh-CN"
 
+    # Thử dịch bằng deep-translator trước
+    try:
         translator = GoogleTranslator(source=src, target=tgt)
-        return translator.translate(text)
+        # Nếu văn bản quá dài, cắt nhỏ theo dấu câu để tránh lỗi 429
+        if len(text) > 400:
+            sentences = text.split('. ')
+            translated_chunks = []
+            for s in sentences:
+                if s.strip():
+                    translated_chunks.append(translator.translate(s))
+                    time.sleep(0.2) # Giãn cách request chống quét spam
+            return '. '.join(translated_chunks)
+        else:
+            return translator.translate(text)
+    except Exception:
+        pass
+
+    # Fallback dự phòng bằng Google Translate gtx API
+    try:
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src}&tl={tgt}&dt=t&q=" + urllib.parse.quote(text)
+        req = urllib.request.Request(
+            url, 
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        )
+        with urllib.request.urlopen(req, timeout=5) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            return "".join([sentence[0] for sentence in result[0] if sentence[0]])
     except Exception as e:
-        # Nếu vẫn bị nghẽn, thử lại bằng gọi API dự phòng với User-Agent ngẫu nhiên
-        try:
-            import urllib.parse
-            import urllib.request
-            import json
-            
-            url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_lang}&tl={tgt_lang}&dt=t&q=" + urllib.parse.quote(text)
-            req = urllib.request.Request(
-                url, 
-                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'}
-            )
-            with urllib.request.urlopen(req, timeout=5) as response:
-                result = json.loads(response.read().decode('utf-8'))
-                return "".join([sentence[0] for sentence in result[0] if sentence[0]])
-        except Exception as err:
-            return f"Hệ thống đang quá tải request, vui lòng thử lại sau vài giây: {str(err)}"
+        return f"Lỗi kết nối dịch thuật: {str(e)}. Vui lòng thử lại sau giây lát."
 
 # ------------------------------------------------------------------------------
-# BẢO MẬT ĐĂNG NHẬP
+# XÁC THỰC MẬT KHẨU
 # ------------------------------------------------------------------------------
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
@@ -80,23 +88,28 @@ if not st.session_state["authenticated"]:
     st.title("🔒 Đăng nhập Hệ thống Cabin Phiên dịch")
     pwd_input = st.text_input("Nhập mật khẩu truy cập:", type="password")
     if st.button("Đăng nhập"):
-        st.session_state["authenticated"] = True
-        st.rerun()
+        if pwd_input: # Có thể đặt mật khẩu tùy ý tại đây
+            st.session_state["authenticated"] = True
+            st.rerun()
     st.stop()
 
+# Khởi tạo kho lưu nhật ký hội nghị
+if "conference_logs" not in st.session_state:
+    st.session_state["conference_logs"] = []
+
 # ------------------------------------------------------------------------------
-# TẠO CÁC TAB CHÍNH
+# GIAO DIỆN CHÍNH (TABS)
 # ------------------------------------------------------------------------------
 tab1, tab2 = st.tabs([
-    "💬 Dịch văn bản / Hội thoại", 
-    "🎙️ Cabin Phiên dịch Trực tiếp"
+    "💬 Dịch văn bản & Hội thoại", 
+    "🎙️ Cabin Phiên dịch Trực tiếp (Continuous)"
 ])
 
 # ==============================================================================
 # TAB 1: DỊCH VĂN BẢN & HỘI THOẠI
 # ==============================================================================
 with tab1:
-    st.subheader("💬 Dịch văn bản & Hội thoại")
+    st.subheader("💬 Dịch văn bản & Hội thoại chuyên sâu")
     
     col_t1_src, col_t1_tgt, col_t1_voice = st.columns(3)
     with col_t1_src:
@@ -106,38 +119,43 @@ with tab1:
     with col_t1_voice:
         voice_t1_label = st.selectbox("Giọng đọc phát âm:", list(VOICE_OPTIONS.keys()), key="t1_voice")
 
-    input_text = st.text_area("Nhập văn bản cần dịch:", height=150)
+    input_text = st.text_area("Nhập văn bản cần dịch:", height=150, placeholder="Dán văn bản cần dịch vào đây...")
     
-    if st.button("Dịch ngay", key="btn_tab1"):
+    col_btn1, col_btn2 = st.columns([1, 5])
+    with col_btn1:
+        translate_clicked = st.button("Dịch ngay", key="btn_tab1", type="primary", use_container_width=True)
+
+    if translate_clicked:
         if input_text.strip():
-            src_code = LANG_OPTIONS[src_lang_name_t1]
-            tgt_code = LANG_OPTIONS[tgt_lang_name_t1]
-            
-            # Dịch thật
-            res_text = translate_robust(input_text, src_code, tgt_code)
-            st.success(res_text)
-            
-            # Đọc âm thanh trực tiếp qua HTML5 SpeechSynthesis (Không lo thiếu file mp3)
-            tts_code = LANG_OPTIONS[tgt_lang_name_t1]
-            clean_res = res_text.replace("'", "\\'").replace("\n", " ")
-            components.html(f"""
-                <script>
-                    var msg = new SpeechSynthesisUtterance('{clean_res}');
-                    msg.lang = '{tts_code}';
-                    window.speechSynthesis.speak(msg);
-                </script>
-            """, height=0)
+            with st.spinner("Đang dịch thuật văn bản..."):
+                src_code = LANG_OPTIONS[src_lang_name_t1]
+                tgt_code = LANG_OPTIONS[tgt_lang_name_t1]
+                
+                res_text = translate_robust(input_text, src_code, tgt_code)
+                st.markdown("### Kết quả dịch:")
+                st.success(res_text)
+                
+                # Tự động đọc văn bản qua Web Speech API trên trình duyệt
+                tts_code = LANG_OPTIONS[tgt_lang_name_t1]
+                clean_res = res_text.replace("'", "\\'").replace('"', '\\"').replace("\n", " ")
+                components.html(f"""
+                    <script>
+                        if ('speechSynthesis' in window) {{
+                            var msg = new SpeechSynthesisUtterance('{clean_res}');
+                            msg.lang = '{tts_code}';
+                            window.speechSynthesis.speak(msg);
+                        }}
+                    </script>
+                """, height=0)
         else:
             st.warning("Vui lòng nhập văn bản cần dịch.")
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (KIỂU CABIN CHUYÊN NGHIỆP)
 # ==============================================================================
 with tab2:
-    st.subheader("Phiên dịch Hội nghị Trực tiếp (Tự động nhận diện & Dịch liên tục)")
-    
-    if "conference_logs" not in st.session_state:
-        st.session_state["conference_logs"] = []
+    st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Chế độ Cabin Liên tục)")
+    st.markdown("Mic sẽ **giữ mở liên tục**, tự động bắt các đoạn ngắt câu của diễn giả để dịch và đọc âm thanh song song mà không cần bấm lại từ đầu.")
 
     col_t2_src, col_t2_tgt, col_t2_voice, col_t2_clear = st.columns([2, 2, 2, 1])
     with col_t2_src:
@@ -154,124 +172,201 @@ with tab2:
             st.rerun()
 
     lang_code_js = "vi-VN" if LANG_OPTIONS[src_lang_name_t2] == "vi" else "en-US"
+    src_code_val = LANG_OPTIONS[src_lang_name_t2]
+    tgt_code_val = LANG_OPTIONS[tgt_lang_name_t2]
 
     st.write("---")
-    st.markdown("##### 🎙️ Điều khiển Cabin Phiên dịch Trực tiếp:")
 
-    spoken_text = st.text_input("Nhận diện giọng nói:", key="speech_recognition_input", label_visibility="collapsed")
+    # Ô ẩn nhận dữ liệu từ Javascript gửi về
+    spoken_text = st.text_input("Stream Data Bridge", key="cabin_stream_bridge", label_visibility="collapsed")
 
-    html_code = f"""
+    # Xử lý đoạn văn bản nhận diện được từ JS cabin gửi lên
+    if spoken_text and spoken_text.strip():
+        raw_text = spoken_text.strip()
+        # Tránh trùng lặp request liên tiếp giống nhau
+        if "last_cabin_text" not in st.session_state or st.session_state["last_cabin_text"] != raw_text:
+            st.session_state["last_cabin_text"] = raw_text
+            
+            translated = translate_robust(raw_text, src_code_val, tgt_code_val)
+            st.session_state["conference_logs"].insert(0, {
+                "time": time.strftime("%H:%M:%S"),
+                "original": raw_text,
+                "translated": translated
+            })
+
+    # Giao diện Cabin Controls & Continuous Speech Recognition bằng JavaScript thuần bám trụ
+    cabin_html_code = f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <script>
-            function setStreamlitValue(value) {{
-                var inputs = window.parent.document.querySelectorAll('input[type="text"]');
-                for (var i = 0; i < inputs.length; i++) {{
-                    if (inputs[i].ariaLabel === "Nhận diện giọng nói:") {{
-                        let nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                        nativeInputValueSetter.call(inputs[i], value);
-                        inputs[i].dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        inputs[i].dispatchEvent(new Event('change', {{ bubbles: true }}));
-                        break;
-                    }}
-                }}
+        <meta charset="utf-8">
+        <style>
+            .cabin-box {{
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                background: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 12px;
+                padding: 20px;
+                text-align: center;
             }}
-        </script>
+            .btn-control {{
+                padding: 12px 28px;
+                font-size: 16px;
+                font-weight: bold;
+                border-radius: 8px;
+                border: none;
+                cursor: pointer;
+                margin: 5px;
+                color: white;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                transition: all 0.2s ease;
+            }}
+            .btn-start {{ background-color: #28a745; }}
+            .btn-start:hover {{ background-color: #218838; }}
+            .btn-stop {{ background-color: #dc3545; }}
+            .btn-stop:hover {{ background-color: #c82333; }}
+            #status-badge {{
+                margin-top: 15px;
+                font-weight: bold;
+                font-size: 15px;
+                color: #495057;
+            }}
+            #live-box {{
+                margin-top: 12px;
+                font-style: italic;
+                color: #0056b3;
+                font-size: 17px;
+                min-height: 28px;
+            }}
+        </style>
     </head>
-    <body style="margin: 0; font-family: sans-serif; background-color: transparent;">
-    <div style="text-align: center; padding: 15px; border: 1px solid #e0e0e0; border-radius: 10px; background-color: #f9f9f9;">
-        <button id="start-btn" onclick="startSpeech()" style="background-color: #28a745; color: white; border: none; padding: 12px 24px; font-size: 16px; font-weight: bold; border-radius: 5px; cursor: pointer; margin-right: 10px;">
-            🔴 BẮT ĐẦU PHÁT BIỂU (Bật Mic Liên Tục)
-        </button>
-        <button id="stop-btn" onclick="stopSpeech()" style="background-color: #dc3545; color: white; border: none; padding: 12px 24px; font-size: 16px; font-weight: bold; border-radius: 5px; cursor: pointer;" disabled>
-            ⏹️ DỪNG CABIN (Tắt Mic)
-        </button>
-        
-        <div id="status" style="margin-top: 15px; font-weight: bold; color: #555;">Đang chờ bắt đầu...</div>
-        <div id="live-preview" style="margin-top: 10px; font-style: italic; color: #0066cc; min-height: 30px; font-size: 18px;"></div>
+    <body>
+    <div class="cabin-box">
+        <div>
+            <button id="start-btn" class="btn-control btn-start" onclick="startCabin()">🔴 KÍCH HOẠT CABIN TRỰC TIẾP</button>
+            <button id="stop-btn" class="btn-control btn-stop" onclick="stopCabin()" disabled>⏹️ DỪNG CABIN</button>
+        </div>
+        <div id="status-badge">Trạng thái: Đang sẵn sàng kết nối Microphone...</div>
+        <div id="live-box">Chưa có âm thanh đầu vào...</div>
     </div>
 
     <script>
         var recognition;
-        var isListening = false;
+        var isRunning = false;
         var silenceTimer = null;
-        var lastRecognizedText = "";
+        var accumulatedSentence = "";
+
+        function updateStreamlitInput(text) {{
+            const doc = window.parent.document;
+            const inputs = doc.querySelectorAll('input[type="text"]');
+            for (let input of inputs) {{
+                if (input.placeholder === "Stream Data Bridge" || input.value !== undefined) {{
+                    // Tìm đúng ô input ẩn stream data bridge
+                    let setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                    if (setter) {{
+                        setter.call(input, text);
+                        input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        break;
+                    }}
+                }}
+            }}
+        }}
+
+        function speakTranslation(text, lang) {{
+            if ('speechSynthesis' in window) {{
+                // Hủy các câu đọc cũ để đọc dồn tiếp câu mới kiểu cabin
+                window.speechSynthesis.cancel();
+                let utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = lang;
+                window.speechSynthesis.speak(utterance);
+            }}
+        }}
 
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {{
-            document.getElementById('status').innerText = '❌ Trình duyệt không hỗ trợ Web Speech API. Vui lòng dùng Chrome hoặc Edge!';
+            document.getElementById('status-badge').innerText = '❌ Trình duyệt không hỗ trợ Web Speech API. Hãy dùng Google Chrome hoặc Microsoft Edge!';
         }} else {{
-            var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             recognition = new SpeechRecognition();
             recognition.continuous = true;
             recognition.interimResults = true;
             recognition.lang = '{lang_code_js}';
 
             recognition.onstart = function() {{
-                isListening = true;
-                document.getElementById('status').innerText = '🎙 Đang lắng nghe... (Tự động dịch sau 1.5s ngắt câu)';
-                document.getElementById('status').style.color = '#28a745';
+                isRunning = true;
+                document.getElementById('status-badge').innerHTML = '🟢 Cabin đang mở mic liên tục... (Đang lắng nghe diễn giả)';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
 
             recognition.onresult = function(event) {{
-                var interim_transcript = '';
-                var final_transcript = '';
+                let interim = '';
+                let finalStr = '';
 
-                for (var i = event.resultIndex; i < event.results.length; ++i) {{
+                for (let i = event.resultIndex; i < event.results.length; ++i) {{
                     if (event.results[i].isFinal) {{
-                        final_transcript += event.results[i][0].transcript;
+                        finalStr += event.results[i][0].transcript;
                     }} else {{
-                        interim_transcript += event.results[i][0].transcript;
+                        interim += event.results[i][0].transcript;
                     }}
                 }}
 
-                var currentText = (final_transcript || interim_transcript).trim();
-                if (currentText !== '') {{
-                    document.getElementById('live-preview').innerText = '💬 Đang nói: ' + currentText;
-                    lastRecognizedText = currentText;
+                let currentSpoken = finalStr || interim;
+                if (currentSpoken.trim() !== "") {{
+                    accumulatedSentence = currentSpoken;
+                    document.getElementById('live-box').innerText = '🎙️ Đang nghe: "' + accumulatedSentence + '"';
 
+                    // Đợi ngắt quãng 1.2 giây thì tự động đẩy đi dịch mà không ngắt hẳn mic
                     clearTimeout(silenceTimer);
                     silenceTimer = setTimeout(function() {{
-                        if (lastRecognizedText !== "") {{
-                            document.getElementById('live-preview').innerText = '⚡ Đang gửi dịch...';
-                            setStreamlitValue(lastRecognizedText);
-                            lastRecognizedText = "";
-                            recognition.stop();
+                        if (accumulatedSentence.trim() !== "") {{
+                            document.getElementById('live-box').innerText = '⚡ Đang dịch và phát loa cabin...';
+                            updateStreamlitInput(accumulatedSentence);
+                            accumulatedSentence = "";
                         }}
-                    }}, 1500);
+                    }}, 1200);
                 }}
             }};
 
             recognition.onerror = function(event) {{
-                console.log('Speech error: ' + event.error);
+                console.log('Speech Recognition error: ', event.error);
+                if (event.error === 'not-allowed') {{
+                    document.getElementById('status-badge').innerText = '❌ Quyền Micro bị từ chối. Hãy cấp quyền trên trình duyệt!';
+                }}
             }};
 
             recognition.onend = function() {{
-                if (isListening) {{
-                    recognition.start();
+                // Tự động khôi phục lại micro liên tục nếu người dùng chưa bấm Dừng Cabin
+                if (isRunning) {{
+                    try {{
+                        recognition.start();
+                    }} catch (e) {{
+                        console.log(e);
+                    }}
                 }} else {{
-                    document.getElementById('status').innerText = '⏹ Đã dừng cabin.';
-                    document.getElementById('status').style.color = '#dc3545';
+                    document.getElementById('status-badge').innerText = '⏹️ Đã dừng hệ thống cabin.';
                     document.getElementById('start-btn').disabled = false;
                     document.getElementById('stop-btn').disabled = true;
-                    document.getElementById('live-preview').innerText = '';
+                    document.getElementById('live-box').innerText = 'Phiên dịch đã kết thúc.';
                 }}
             }};
         }}
 
-        function startSpeech() {{
+        function startCabin() {{
             if (recognition) {{
-                isListening = true;
-                recognition.start();
+                isRunning = true;
+                try {{
+                    recognition.start();
+                }} catch (e) {{
+                    console.log(e);
+                }}
             }}
         }}
 
-        function stopSpeech() {{
+        function stopCabin() {{
+            isRunning = false;
+            clearTimeout(silenceTimer);
             if (recognition) {{
-                isListening = false;
-                clearTimeout(silenceTimer);
                 recognition.stop();
             }}
         }}
@@ -280,54 +375,24 @@ with tab2:
     </html>
     """
 
-    components.html(html_code, height=180)
-
-    if spoken_text and spoken_text.strip():
-        raw_text = spoken_text.strip()
-        if "last_processed_text" not in st.session_state or st.session_state["last_processed_text"] != raw_text:
-            st.session_state["last_processed_text"] = raw_text
-            
-            src_code = LANG_OPTIONS[src_lang_name_t2]
-            tgt_code = LANG_OPTIONS[tgt_lang_name_t2]
-            
-            try:
-                translated = translate_robust(raw_text, src_code, tgt_code)
-                st.session_state["conference_logs"].append({
-                    "time": time.strftime("%H:%M:%S"),
-                    "original": raw_text,
-                    "translated": translated
-                })
-                
-                # Đọc phát âm bản dịch
-                clean_trans = translated.replace("'", "\\'").replace("\n", " ")
-                components.html(f"""
-                    <script>
-                        var msg = new SpeechSynthesisUtterance('{clean_trans}');
-                        msg.lang = '{tgt_code}';
-                        window.speechSynthesis.speak(msg);
-                    </script>
-                """, height=0)
-                
-                st.rerun()
-            except Exception as e:
-                st.error(f"Lỗi phiên dịch: {e}")
+    components.html(cabin_html_code, height=160)
 
     st.write("---")
-    st.markdown("### 📺 Nhật Ký Khớp Ngôn Ngữ Trực Tiếp (Live Stream Log)")
+    st.markdown("### 📺 Nhật ký trực tiếp (Live Stream Translation Log)")
     
     col_hist_left, col_hist_right = st.columns(2)
     with col_hist_left:
-        st.markdown(f"#### 🌐 Phát biểu gốc ({src_lang_name_t2})")
+        st.markdown(f"#### 🌐 Bài phát biểu gốc ({src_lang_name_t2})")
         if st.session_state["conference_logs"]:
-            for item in reversed(st.session_state["conference_logs"]):
+            for item in st.session_state["conference_logs"]:
                 st.info(f"⏱️ **[{item['time']}]** {item['original']}")
         else:
-            st.caption("Đang chờ bài phát biểu...")
+            st.caption("Chưa có dữ liệu hội thoại trực tiếp...")
 
     with col_hist_right:
         st.markdown(f"#### 🌐 Bản dịch cabin ({tgt_lang_name_t2})")
         if st.session_state["conference_logs"]:
-            for item in reversed(st.session_state["conference_logs"]):
+            for item in st.session_state["conference_logs"]:
                 st.success(f"⏱️ **[{item['time']}]** {item['translated']}")
         else:
             st.caption("Đang chờ bản dịch...")
