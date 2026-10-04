@@ -1,5 +1,5 @@
 streamlit
-google-genai
 edge-tts
 deep-translator
-requests
+streamlit-mic-recorder
+SpeechRecognition
