@@ -1,17 +1,15 @@
 import time
 import json
-import io
+import urllib.parse
+import urllib.request
 import streamlit as st
 import streamlit.components.v1 as components
-from deep_translator import GoogleTranslator
-from gtts import gTTS
 
 # ------------------------------------------------------------------------------
-# CẤU HÌNH GIAO DIỆN & BIẾN TOÀN CỤC
+# CẤU HÌNH GIAO DIỆN & DANH SÁCH NGÔN NGỮ
 # ------------------------------------------------------------------------------
 st.set_page_config(page_title="AI Translate Cabin", layout="wide")
 
-# Ánh xá mã ngôn ngữ cho Deep Translator & Web Speech API
 LANG_OPTIONS = {
     "🇻🇳 Tiếng Việt": "vi",
     "🇺🇸 Tiếng Anh (Mỹ)": "en",
@@ -35,28 +33,21 @@ VOICE_OPTIONS = {
 }
 
 # ------------------------------------------------------------------------------
-# HÀM DỊCH THẬT & PHÁT ÂM THANH THẬT
+# HÀM DỊCH & TTS BẰNG THƯ VIỆN CHUẨN PYTHON (KHÔNG BỊ LỖI THIẾU MODULE)
 # ------------------------------------------------------------------------------
 def translate_robust(text, src_lang, tgt_lang):
+    """Dịch thật qua Google Translate API công khai (không cần pip install)"""
+    if not text.strip():
+        return ""
     try:
-        translated = GoogleTranslator(source=src_lang, target=tgt_lang).translate(text)
-        return translated
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_lang}&tl={tgt_lang}&dt=t&q=" + urllib.parse.quote(text)
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            translated_text = "".join([sentence[0] for sentence in result[0] if sentence[0]])
+            return translated_text
     except Exception as e:
-        return f"Lỗi dịch thuật: {str(e)}"
-
-def create_tts_audio(text, lang_code):
-    try:
-        tts = gTTS(text=text, lang=lang_code, slow=False)
-        fp = io.BytesIO()
-        tts.write_to_fp(fp)
-        fp.seek(0)
-        return fp.read()
-    except Exception:
-        return None
-
-def play_audio_autoplay_hidden(audio_bytes):
-    if audio_bytes:
-        st.audio(audio_bytes, format="audio/mp3", autoplay=True)
+        return f"Lỗi kết nối dịch: {str(e)}"
 
 # ------------------------------------------------------------------------------
 # BẢO MẬT ĐĂNG NHẬP
@@ -101,15 +92,20 @@ with tab1:
             src_code = LANG_OPTIONS[src_lang_name_t1]
             tgt_code = LANG_OPTIONS[tgt_lang_name_t1]
             
-            # Dịch thuật thực tế
+            # Dịch thật
             res_text = translate_robust(input_text, src_code, tgt_code)
             st.success(res_text)
             
-            # Phát âm thanh thực tế
-            voice_code = LANG_OPTIONS[tgt_lang_name_t1]
-            audio_bytes = create_tts_audio(res_text, voice_code)
-            if audio_bytes:
-                play_audio_autoplay_hidden(audio_bytes)
+            # Đọc âm thanh trực tiếp qua HTML5 SpeechSynthesis (Không lo thiếu file mp3)
+            tts_code = LANG_OPTIONS[tgt_lang_name_t1]
+            clean_res = res_text.replace("'", "\\'").replace("\n", " ")
+            components.html(f"""
+                <script>
+                    var msg = new SpeechSynthesisUtterance('{clean_res}');
+                    msg.lang = '{tts_code}';
+                    window.speechSynthesis.speak(msg);
+                </script>
+            """, height=0)
         else:
             st.warning("Vui lòng nhập văn bản cần dịch.")
 
@@ -281,9 +277,16 @@ with tab2:
                     "translated": translated
                 })
                 
-                audio_bytes = create_tts_audio(translated, tgt_code)
-                if audio_bytes:
-                    play_audio_autoplay_hidden(audio_bytes)
+                # Đọc phát âm bản dịch
+                clean_trans = translated.replace("'", "\\'").replace("\n", " ")
+                components.html(f"""
+                    <script>
+                        var msg = new SpeechSynthesisUtterance('{clean_trans}');
+                        msg.lang = '{tgt_code}';
+                        window.speechSynthesis.speak(msg);
+                    </script>
+                """, height=0)
+                
                 st.rerun()
             except Exception as e:
                 st.error(f"Lỗi phiên dịch: {e}")
