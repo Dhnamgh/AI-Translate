@@ -101,7 +101,7 @@ tab1, tab2 = st.tabs([
 ])
 
 # ==============================================================================
-# TAB 1: DỊCH VĂN BẢN & HỘI THOẠI
+# TAB 1: DỊCH VĂN BẢN & HỘI THOẠI (GIỮ NGUYÊN)
 # ==============================================================================
 with tab1:
     st.subheader("💬 Dịch văn bản & Hội thoại chuyên sâu")
@@ -133,7 +133,7 @@ with tab1:
         st.success(st.session_state["last_translation"])
 
         st.markdown("---")
-        st.markdown("##### 🔊 Cài đặt Âm thanh & Tải về:")
+        st.markdown("##### 🔊 Cài đặt Âm thanh & Tải về (Tự động cập nhật khi đổi giọng/tốc độ):")
         
         col_v_sel, col_r_sel = st.columns(2)
         with col_v_sel:
@@ -160,11 +160,11 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (TỐI ƯU TRÁNH SPAM API 429)
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (DỊCH REALTIME THÔNG MINH, KHÔNG KẸT)
 # ==============================================================================
 with tab2:
     st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    st.markdown("Hệ thống nhận diện giọng nói hiển thị chữ đuổi theo thời gian thực và tự động chốt câu để dịch thuật mượt mà.")
+    st.markdown("Hệ thống nhận diện giọng nói và dịch realtime tốc độ cao, hiển thị đuổi theo từng chữ một.")
 
     col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
     with col_t2_src:
@@ -253,11 +253,11 @@ with tab2:
         
         <div class="cabin-grid">
             <div class="cabin-panel">
-                <div class="panel-title" style="color: #28a745;">🌐 Bản dịch Cabin ({tgt_lang_name_t2})</div>
+                <div class="panel-title">🌐 Bản dịch Cabin ({tgt_lang_name_t2})</div>
                 <div id="live-translated-text" class="panel-content">[Đang chờ bản dịch...]</div>
             </div>
             <div class="cabin-panel">
-                <div class="panel-title" style="color: #0056b3;">🎙️ Phát biểu Gốc ({src_lang_name_t2})</div>
+                <div class="panel-title">🎙️ Phát biểu Gốc ({src_lang_name_t2})</div>
                 <div id="live-original-text" class="panel-content">[Chưa có giọng nói...]</div>
             </div>
         </div>
@@ -268,10 +268,12 @@ with tab2:
         var isRunning = false;
         var historyOriginal = "";
         var historyTranslated = "";
+        var translationTimer;
 
-        async function quickTranslate(text) {{
+        async function fetchTranslation(text) {{
             if (!text || text.trim() === "") return "";
-            let chunk = text.length > 350 ? text.substring(text.length - 350) : text;
+            // Lấy 1000 ký tự cuối để đảm bảo không bị cắt đoạn quá ngắn
+            let chunk = text.length > 1000 ? text.substring(text.length - 1000) : text;
 
             try {{
                 let url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_code_val}&tl={tgt_code_val}&dt=t&q=" + encodeURIComponent(chunk);
@@ -294,7 +296,8 @@ with tab2:
                 }}
             }} catch(e) {{}}
 
-            return "[Lỗi mạng/Quá tải]";
+            // Tuyệt đối không trả về text gốc để tránh hiện tiếng Việt 2 bên
+            return " [⏳ Đang tải bản dịch...]";
         }}
 
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {{
@@ -308,12 +311,12 @@ with tab2:
 
             recognition.onstart = function() {{
                 isRunning = true;
-                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Đã tối ưu chống spam IP)...';
+                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Dịch song song realtime)...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
 
-            recognition.onresult = async function(event) {{
+            recognition.onresult = function(event) {{
                 let interim = '';
                 let finalStr = '';
 
@@ -325,30 +328,41 @@ with tab2:
                     }}
                 }}
 
-                // Cập nhật văn bản gốc (Bên phải) liên tục đuổi theo giọng nói
                 let origBox = document.getElementById('live-original-text');
+                let transBox = document.getElementById('live-translated-text');
+
+                // Cập nhật văn bản gốc (Bên phải)
                 origBox.innerText = historyOriginal + finalStr + interim;
                 origBox.scrollTop = origBox.scrollHeight;
 
-                let transBox = document.getElementById('live-translated-text');
-
-                // Chỉ gửi API dịch khi kết thúc một đoạn (isFinal) để tránh bị Google khóa IP
+                // Nếu có câu hoàn chỉnh, dịch ngay lập tức
                 if (finalStr.trim() !== "") {{
+                    clearTimeout(translationTimer);
                     historyOriginal += finalStr;
-                    
                     transBox.innerText = historyTranslated + " [⚡ Đang dịch...]";
-                    transBox.scrollTop = transBox.scrollHeight;
 
-                    let translatedChunk = await quickTranslate(finalStr);
-                    if (translatedChunk && !translatedChunk.includes("[Lỗi")) {{
-                        historyTranslated += translatedChunk + " ";
-                    }}
-                    
-                    transBox.innerText = historyTranslated;
-                    transBox.scrollTop = transBox.scrollHeight;
+                    fetchTranslation(finalStr).then(translated => {{
+                        if (translated && !translated.includes("[⏳")) {{
+                            historyTranslated += translated + " ";
+                        }}
+                        transBox.innerText = historyTranslated;
+                        transBox.scrollTop = transBox.scrollHeight;
+                    }});
+
                 }} else if (interim.trim() !== "") {{
+                    // Dù đang nói dở chưa hết câu, nhưng nếu dừng 0.7s là dịch đuổi theo liền
                     transBox.innerText = historyTranslated + " [...đang nghe...]";
                     transBox.scrollTop = transBox.scrollHeight;
+
+                    clearTimeout(translationTimer);
+                    translationTimer = setTimeout(() => {{
+                        fetchTranslation(interim).then(translatedInterim => {{
+                            if (translatedInterim && !translatedInterim.includes("[⏳")) {{
+                                transBox.innerText = historyTranslated + translatedInterim;
+                                transBox.scrollTop = transBox.scrollHeight;
+                            }}
+                        }});
+                    }}, 700); 
                 }}
             }};
 
