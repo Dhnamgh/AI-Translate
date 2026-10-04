@@ -35,19 +35,40 @@ VOICE_OPTIONS = {
 # ------------------------------------------------------------------------------
 # HÀM DỊCH & TTS BẰNG THƯ VIỆN CHUẨN PYTHON (KHÔNG BỊ LỖI THIẾU MODULE)
 # ------------------------------------------------------------------------------
+from deep_translator import GoogleTranslator
+
 def translate_robust(text, src_lang, tgt_lang):
-    """Dịch thật qua Google Translate API công khai (không cần pip install)"""
+    """Dịch văn bản sử dụng deep-translator chống rate-limit 429"""
     if not text.strip():
         return ""
     try:
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_lang}&tl={tgt_lang}&dt=t&q=" + urllib.parse.quote(text)
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            translated_text = "".join([sentence[0] for sentence in result[0] if sentence[0]])
-            return translated_text
+        # Chuyển đổi mã ngôn ngữ chuẩn cho deep-translator
+        src = src_lang.lower()
+        tgt = tgt_lang.lower()
+        
+        # Xử lý ngoại lệ mã ngôn ngữ
+        if src == "zh-cn": src = "zh-CN"
+        if tgt == "zh-cn": tgt = "zh-CN"
+
+        translator = GoogleTranslator(source=src, target=tgt)
+        return translator.translate(text)
     except Exception as e:
-        return f"Lỗi kết nối dịch: {str(e)}"
+        # Nếu vẫn bị nghẽn, thử lại bằng gọi API dự phòng với User-Agent ngẫu nhiên
+        try:
+            import urllib.parse
+            import urllib.request
+            import json
+            
+            url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_lang}&tl={tgt_lang}&dt=t&q=" + urllib.parse.quote(text)
+            req = urllib.request.Request(
+                url, 
+                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'}
+            )
+            with urllib.request.urlopen(req, timeout=5) as response:
+                result = json.loads(response.read().decode('utf-8'))
+                return "".join([sentence[0] for sentence in result[0] if sentence[0]])
+        except Exception as err:
+            return f"Hệ thống đang quá tải request, vui lòng thử lại sau vài giây: {str(err)}"
 
 # ------------------------------------------------------------------------------
 # BẢO MẬT ĐĂNG NHẬP
