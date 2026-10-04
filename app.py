@@ -1,4 +1,7 @@
 import time
+import json
+import urllib.parse
+import urllib.request
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -30,31 +33,55 @@ VOICE_OPTIONS = {
 }
 
 # ------------------------------------------------------------------------------
-# HÀM DỊCH THUẬT BẰNG GOOGLE GENAI (CHỐNG LỖI 429 HOÀN TOÀN)
+# HÀM DỊCH THUẬT ĐA TẦNG AN TOÀN (KHÔNG CẦN API KEY, KHÔNG LỖI 429)
 # ------------------------------------------------------------------------------
+from deep_translator import GoogleTranslator, MyMemoryTranslator
+
 @st.cache_data(show_spinner=False, ttl=3600)
-def translate_with_ai(text, src_name, tgt_name):
-    """Sử dụng Google GenAI Gemini để dịch thuật ổn định, chất lượng cao"""
+def translate_free(text, src_code, tgt_code):
+    """Hàm dịch sử dụng nhiều nguồn dự phòng tự động, đảm bảo luôn trả về kết quả"""
     if not text.strip():
         return ""
     
+    src = src_code.lower()
+    tgt = tgt_code.lower()
+    if src == "zh-cn": src = "zh-CN"
+    if tgt == "zh-cn": tgt = "zh-CN"
+
+    # Thử dịch bằng GoogleTranslator
     try:
-        from google import genai
-        # Khởi tạo client tự động nhận diện API key từ môi trường hệ thống
-        client = genai.Client()
-        
-        prompt = f"Bạn là một thông dịch viên cabin chuyên nghiệp. Hãy dịch chính xác đoạn văn bản sau từ {src_name} sang {tgt_name}. Chỉ trả về đúng nội dung kết quả dịch, không kèm giải thích:\n\n{text}"
-        
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
+        translator = GoogleTranslator(source=src, target=tgt)
+        res = translator.translate(text)
+        if res and "429" not in res:
+            return res
+    except Exception:
+        pass
+
+    # Fallback dự phòng sang MyMemoryTranslator (Miễn phí, không bị chặn IP)
+    try:
+        mm = MyMemoryTranslator(source=src, target=tgt)
+        res = mm.translate(text)
+        if res:
+            return res
+    except Exception:
+        pass
+
+    # Fallback cuối cùng qua Google Translate gtx API endpoint
+    try:
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src}&tl={tgt}&dt=t&q=" + urllib.parse.quote(text)
+        req = urllib.request.Request(
+            url, 
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         )
-        if response and response.text:
-            return response.text.strip()
+        with urllib.request.urlopen(req, timeout=5) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            translated_text = "".join([sentence[0] for sentence in result[0] if sentence[0]])
+            if translated_text:
+                return translated_text
     except Exception as e:
-        return f"Lỗi gọi AI Gemini: {str(e)}"
-    
-    return "Không thể kết nối với dịch vụ AI."
+        return f"Không thể dịch lúc này: {str(e)}"
+
+    return "Không thể dịch được văn bản. Vui lòng kiểm tra lại kết nối mạng."
 
 # ------------------------------------------------------------------------------
 # XÁC THỰC MẬT KHẨU
@@ -104,13 +131,17 @@ with tab1:
 
     if translate_clicked:
         if input_text.strip():
-            with st.spinner("Đang dịch thuật văn bản qua AI..."):
-                res_text = translate_with_ai(input_text, src_lang_name_t1, tgt_lang_name_t1)
+            with st.spinner("Đang dịch thuật văn bản..."):
+                src_code = LANG_OPTIONS[src_lang_name_t1]
+                tgt_code = LANG_OPTIONS[tgt_lang_name_t1]
+                
+                res_text = translate_free(input_text, src_code, tgt_code)
                 
                 st.markdown("### Kết quả dịch:")
                 st.success(res_text)
                 
-                if "Lỗi" not in res_text:
+                # Chỉ đọc phát âm nếu kết quả thành công
+                if "Không thể dịch" not in res_text:
                     tts_code = LANG_OPTIONS[tgt_lang_name_t1]
                     clean_res = res_text.replace("'", "\\'").replace('"', '\\"').replace("\n", " ")
                     components.html(f"""
@@ -157,7 +188,10 @@ with tab2:
         if "last_cabin_text" not in st.session_state or st.session_state["last_cabin_text"] != raw_text:
             st.session_state["last_cabin_text"] = raw_text
             
-            translated = translate_with_ai(raw_text, src_lang_name_t2, tgt_lang_name_t2)
+            src_code_val = LANG_OPTIONS[src_lang_name_t2]
+            tgt_code_val = LANG_OPTIONS[tgt_lang_name_t2]
+            
+            translated = translate_free(raw_text, src_code_val, tgt_code_val)
             st.session_state["conference_logs"].insert(0, {
                 "time": time.strftime("%H:%M:%S"),
                 "original": raw_text,
@@ -318,7 +352,7 @@ with tab2:
     
     col_hist_left, col_hist_right = st.columns(2)
     with col_hist_left:
-        st.markdown(f"#### 🌐 Bài phát biểu gốc ({src_lang_name_t2})")
+        st.markdown(f"#### 🌐 Phát biểu gốc ({src_lang_name_t2})")
         if st.session_state["conference_logs"]:
             for item in st.session_state["conference_logs"]:
                 st.info(f"⏱️ **[{item['time']}]** {item['original']}")
@@ -331,4 +365,4 @@ with tab2:
             for item in st.session_state["conference_logs"]:
                 st.success(f"⏱️ **[{item['time']}]** {item['translated']}")
         else:
-            st.caption("Đang chờ bản dịch...")
+            st.caption("Dữ liệu dịch sẽ xuất hiện ở đây...")
