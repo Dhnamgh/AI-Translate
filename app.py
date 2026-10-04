@@ -36,13 +36,26 @@ def check_password():
 if not check_password():
     st.stop()
 
-# 3. DANH SÁCH GIỌNG ĐỌC
+# 3. DANH SÁCH GIỌNG ĐỌC ĐẦY ĐỦ (ANH - MỸ, ANH - ANH & TIẾNG VIỆT)
 VOICE_OPTIONS = {
-    "Nữ - Miền Bắc (Hoài Mỹ - Báo cáo / Thuyết trình)": "vi-VN-HoaiMyNeural",
-    "Nam - Miền Bắc (Nam Minh - Trang trọng / Giảng dạy)": "vi-VN-NamMinhNeural",
+    # Giọng Tiếng Anh - Mỹ (US) - Chuẩn Báo cáo & Thuyết trình Quốc tế
+    "🇺🇸 Nam - Anh-Mỹ (Guy - Trầm ấm, Chuẩn Học thuật / Khoa học)": "en-US-GuyNeural",
+    "🇺🇸 Nữ - Anh-Mỹ (Jenny - Truyền cảm, Tự nhiên)": "en-US-JennyNeural",
+    "🇺🇸 Nữ - Anh-Mỹ (Aria - Trang trọng, Rõ chữ)": "en-US-AriaNeural",
+    "🇺🇸 Nam - Anh-Mỹ (Christopher - Đọc báo cáo / Bản tin)": "en-US-ChristopherNeural",
+    "🇺🇸 Nam - Anh-Mỹ (Eric - Rõ ràng, Điềm tĩnh)": "en-US-EricNeural",
+    "🇺🇸 Nữ - Anh-Mỹ (Michelle - Nhẹ nhàng, Dễ nghe)": "en-US-MichelleNeural",
+
+    # Giọng Tiếng Anh - Anh (UK)
+    "🇬🇧 Nữ - Anh-Anh (Sonia - Giọng Anh chuẩn Quý phái)": "en-GB-SoniaNeural",
+    "🇬🇧 Nam - Anh-Anh (Ryan - Điềm tĩnh, Trang trọng)": "en-GB-RyanNeural",
+
+    # Giọng Tiếng Việt
+    "🇻🇳 Nữ - Tiếng Việt (Hoài Mỹ - Báo cáo / Thuyết trình)": "vi-VN-HoaiMyNeural",
+    "🇻🇳 Nam - Tiếng Việt (Nam Minh - Trang trọng / Giảng dạy)": "vi-VN-NamMinhNeural"
 }
 
-# 4. HÀM TẠO ÂM THANH BẰNG EDGE-TTS (HỖ TRỢ ĐIỀU CHỈNH TỐC ĐỘ / TÔNG GIỌNG)
+# 4. HÀM TẠO ÂM THANH NEURAL TTS
 async def generate_edge_audio_async(text, voice_code, rate_str, pitch_str, output_path):
     communicate = edge_tts.Communicate(text, voice_code, rate=rate_str, pitch=pitch_str)
     await communicate.save(output_path)
@@ -79,7 +92,7 @@ with tab1:
     
     with col_left:
         selected_voice_label = st.selectbox(
-            "1. Chọn giọng đọc AI:",
+            "1. Chọn giọng đọc AI (Anh - Mỹ / Anh - Anh / Tiếng Việt):",
             list(VOICE_OPTIONS.keys()),
             index=0
         )
@@ -91,7 +104,7 @@ with tab1:
             max_value=40,
             value=-5,
             step=5,
-            help="Đọc báo cáo khoa học nên để khoảng -5% đến 0% để âm thanh tròn chữ, rõ ràng."
+            help="Đọc bài báo khoa học / thuyết trình nên để khoảng -5% đến 0% để âm thanh rõ chữ."
         )
 
         pitch_val = st.slider(
@@ -106,7 +119,7 @@ with tab1:
         text_input = st.text_area(
             "4. Nhập nội dung văn bản / bài báo cáo:",
             height=200,
-            placeholder="Nhập văn bản cần chuyển thành giọng đọc..."
+            placeholder="Nhập văn bản tiếng Anh hoặc tiếng Việt cần chuyển thành giọng đọc..."
         )
         
         btn_generate = st.button("▶ Đọc & Tạo file MP3", type="primary", use_container_width=True)
