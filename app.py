@@ -151,7 +151,7 @@ with tab2:
         from pydub import AudioSegment
         mic_ready = True
     except ImportError:
-        st.error("⚠️ Chưa cài đủ thư viện `streamlit-mic-recorder`, `SpeechRecognition` hoặc `pydub`. Kiểm tra file `requirements.txt`!")
+        st.error("⚠️ Chưa cài đủ thư viện. Vui lòng kiểm tra file `requirements.txt` và `packages.txt`!")
 
     if mic_ready:
         col_lang1, col_lang2 = st.columns(2)
@@ -162,61 +162,73 @@ with tab2:
             )
         
         st.write("---")
-        st.markdown("##### 🎙️ Bắt đầu phát biểu (Nhấn nút dưới đây để nói):")
+        st.markdown("##### 🎙️ Bắt đầu phát biểu:")
+        st.caption("📌 *Lưu ý: Đảm bảo trình duyệt đã cho phép ứng dụng truy cập Microphone.*")
         
         recorded_audio = mic_recorder(
-            start_prompt="🔴 Bấm để nói (Start Recording)",
-            stop_prompt="⏹️ Bấm để dừng & Dịch (Stop Recording)",
+            start_prompt="🔴 Bấm để BẮT ĐẦU NÓI",
+            stop_prompt="⏹️ Bấm để DỪNG & DỊCH",
             key="conference_mic"
         )
 
-        if recorded_audio and 'bytes' in recorded_audio and len(recorded_audio['bytes']) > 0:
+        if recorded_audio and 'bytes' in recorded_audio:
             audio_bytes = recorded_audio['bytes']
+            audio_len = len(audio_bytes)
 
-            # Chuyển đổi file âm thanh từ Micro sang chuẩn WAV PCM nguyên bản bằng Pydub
-            wav_path = None
-            try:
-                audio_stream = io.BytesIO(audio_bytes)
-                audio_segment = AudioSegment.from_file(audio_stream)
-                
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_wav:
-                    audio_segment.export(tmp_wav.name, format="wav")
-                    wav_path = tmp_wav.name
+            # KIỂM TRA TÍN HIỆU ÂM THANH THU ĐƯỢC
+            if audio_len < 5000:  # Kích thước file thu được quá nhỏ -> mic bị mute/tắt
+                st.warning("⚠️ Không phát hiện âm thanh! Vui lòng kiểm tra xem Micro có bị tắt tiếng (Mute) hoặc chưa cấp quyền cho trình duyệt hay không.")
+            else:
+                st.info(f"🔊 Đã nhận tín hiệu âm thanh ({round(audio_len / 1024, 1)} KB). Đang xử lý phiên dịch...")
+                st.audio(audio_bytes, format="audio/wav") # Cho phép nghe lại âm thanh vừa ghi
 
-                recognizer = sr.Recognizer()
-                with sr.AudioFile(wav_path) as source:
-                    audio_data_rec = recognizer.record(source)
+                wav_path = None
+                try:
+                    # Chuyển đổi dữ liệu âm thanh thu từ trình duyệt
+                    audio_stream = io.BytesIO(audio_bytes)
+                    audio_segment = AudioSegment.from_file(audio_stream)
+                    
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_wav:
+                        audio_segment.export(tmp_wav.name, format="wav")
+                        wav_path = tmp_wav.name
 
-                if mode == "🇻🇳 Tiếng Việt ➔ 🇺🇸 Tiếng Anh":
-                    src_code, tgt_code = "vi-VN", "en"
-                    tts_voice = "en-US-GuyNeural"
-                else:
-                    src_code, tgt_code = "en-US", "vi"
-                    tts_voice = "vi-VN-NamMinhNeural"
+                    recognizer = sr.Recognizer()
+                    with sr.AudioFile(wav_path) as source:
+                        audio_data_rec = recognizer.record(source)
 
-                col_speech_left, col_speech_right = st.columns(2)
+                    if mode == "🇻🇳 Tiếng Việt ➔ 🇺🇸 Tiếng Anh":
+                        src_code, tgt_code = "vi-VN", "en"
+                        tts_voice = "en-US-GuyNeural"
+                    else:
+                        src_code, tgt_code = "en-US", "vi"
+                        tts_voice = "vi-VN-NamMinhNeural"
 
-                with col_speech_left:
-                    st.markdown("### 1. Nhận diện giọng nói (STT)")
-                    spoken_text = recognizer.recognize_google(audio_data_rec, language=src_code)
-                    st.info(f"🗣️ **Nội dung vừa nói:** {spoken_text}")
+                    col_speech_left, col_speech_right = st.columns(2)
 
-                translated_text = GoogleTranslator(
-                    source=src_code[:2], 
-                    target=tgt_code
-                ).translate(spoken_text)
+                    with col_speech_left:
+                        st.markdown("### 1. Nhận diện giọng nói (STT)")
+                        spoken_text = recognizer.recognize_google(audio_data_rec, language=src_code)
+                        st.info(f"🗣️ **Nội dung vừa nói:** {spoken_text}")
 
-                with col_speech_right:
-                    st.markdown("### 2. Bản dịch & Giọng đọc cabin (TTS)")
-                    st.success(f"🌐 **Bản dịch:** {translated_text}")
+                    translated_text = GoogleTranslator(
+                        source=src_code[:2], 
+                        target=tgt_code
+                    ).translate(spoken_text)
 
-                    translated_audio_bytes = create_tts_audio(translated_text, tts_voice)
-                    st.audio(translated_audio_bytes, format="audio/mp3", autoplay=True)
+                    with col_speech_right:
+                        st.markdown("### 2. Bản dịch & Giọng đọc cabin (TTS)")
+                        st.success(f"🌐 **Bản dịch:** {translated_text}")
 
-            except sr.UnknownValueError:
-                st.warning("⚠️ Chưa nhận diện rõ giọng nói. Vui lòng nói rõ ràng hơn và bấm thử lại!")
-            except Exception as e:
-                st.error(f"❌ Lỗi xử lý âm thanh: {e}")
-            finally:
-                if wav_path and os.path.exists(wav_path):
-                    os.remove(wav_path)
+                        translated_audio_bytes = create_tts_audio(translated_text, tts_voice)
+                        st.audio(translated_audio_bytes, format="audio/mp3", autoplay=True)
+
+                except sr.UnknownValueError:
+                    st.error("❌ Không nhận diện được từ ngữ nào. Vui lòng nói to, rõ ràng hơn và bấm thử lại!")
+                except Exception as e:
+                    if "ffprobe" in str(e):
+                        st.error("❌ Máy chủ đang khởi động lại gói FFmpeg. Vui lòng đợi khoảng 1-2 phút rồi bấm lại nút RECORD!")
+                    else:
+                        st.error(f"❌ Lỗi xử lý âm thanh: {e}")
+                finally:
+                    if wav_path and os.path.exists(wav_path):
+                        os.remove(wav_path)
