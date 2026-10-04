@@ -28,7 +28,6 @@ LANG_OPTIONS = {
     "🇹🇭 Tiếng Thái": "th"
 }
 
-# Ánh xạ chính xác giọng đọc Neural Nam/Nữ của Edge TTS
 VOICE_MAP = {
     "us Nam - Anh-Mỹ (Guy - Trầm ấm)": "en-US-GuyNeural",
     "us Nữ - Anh-Mỹ (Jenny - Truyền cảm)": "en-US-JennyNeural",
@@ -74,7 +73,6 @@ def translate_stable(text, src_code, tgt_code):
 # ------------------------------------------------------------------------------
 async def generate_tts_async(text, voice_key, speed_rate, output_filename):
     voice_name = VOICE_MAP.get(voice_key, "en-US-GuyNeural")
-    # Chuyển đổi tốc độ từ số (ví dụ 1.0) sang định dạng phần trăm edge-tts (+0%, +50%, -30%)
     percent = int((speed_rate - 1.0) * 100)
     rate_str = f"+{percent}%" if percent >= 0 else f"{percent}%"
     
@@ -111,7 +109,7 @@ if "conference_logs" not in st.session_state:
 # ------------------------------------------------------------------------------
 tab1, tab2 = st.tabs([
     "💬 Dịch văn bản & Hội thoại", 
-    "🎙️ Cabin Phiên dịch Trực tiếp (Continuous)"
+    "🎙️ Cabin Phiên dịch Trực tiếp (Realtime Stream)"
 ])
 
 # ==============================================================================
@@ -128,14 +126,13 @@ with tab1:
     with col_t1_voice:
         voice_t1_label = st.selectbox("Giọng đọc phát âm:", list(VOICE_MAP.keys()), key="t1_voice")
 
-    # Thêm điều khiển tốc độ đọc và nút bấm
-    col_rate, col_blank = st.columns([2, 4])
+    col_rate, _ = st.columns([2, 4])
     with col_rate:
         speed_option = st.slider("Tốc độ đọc (x lần):", min_value=0.5, max_value=2.0, value=1.0, step=0.1, key="t1_speed")
 
     input_text = st.text_area("Nhập văn bản cần dịch:", height=150, placeholder="Dán văn bản cần dịch vào đây...")
     
-    col_btn1, col_btn2 = st.columns([1, 5])
+    col_btn1, _ = st.columns([1, 5])
     with col_btn1:
         translate_clicked = st.button("Dịch ngay", key="btn_tab1", type="primary", use_container_width=True)
 
@@ -148,14 +145,12 @@ with tab1:
                 res_text = translate_stable(input_text, src_code, tgt_code)
                 st.session_state["last_translation"] = res_text
                 
-                # Tạo file MP3 ngay lập tức
                 audio_file = "translated_speech.mp3"
                 success_audio = create_mp3(res_text, voice_t1_label, speed_option, audio_file)
                 st.session_state["audio_ready"] = success_audio
         else:
             st.warning("Vui lòng nhập văn bản cần dịch.")
 
-    # Hiển thị kết quả và phát/tải âm thanh nếu đã có trong session_state
     if "last_translation" in st.session_state and st.session_state["last_translation"]:
         st.markdown("### Kết quả dịch:")
         st.success(st.session_state["last_translation"])
@@ -178,11 +173,11 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (REALTIME STREAM)
 # ==============================================================================
 with tab2:
-    st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Chế độ Cabin Liên tục)")
-    st.markdown("Micro được giữ mở liên tục, tự động bắt các đoạn ngắt câu để dịch và hiển thị nhật ký.")
+    st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
+    st.markdown("Hệ thống nhận diện giọng nói trực tiếp và hiển thị chữ đuổi theo thời gian thực (Realtime).")
 
     col_t2_src, col_t2_tgt, col_t2_voice, col_t2_clear = st.columns([2, 2, 2, 1])
     with col_t2_src:
@@ -199,14 +194,16 @@ with tab2:
             st.rerun()
 
     lang_code_js = "vi-VN" if LANG_OPTIONS[src_lang_name_t2] == "vi" else "en-US"
+    tgt_lang_code = LANG_OPTIONS[tgt_lang_name_t2]
 
     st.write("---")
 
+    # Ô ẩn nhận diện văn bản stream từ JS
     spoken_text = st.text_input("Stream Data Bridge", key="cabin_stream_bridge", label_visibility="collapsed")
 
     if spoken_text and spoken_text.strip():
         raw_text = spoken_text.strip()
-        if "last_cabin_text" not in st.session_state || st.session_state["last_cabin_text"] != raw_text:
+        if "last_cabin_text" not in st.session_state or st.session_state["last_cabin_text"] != raw_text:
             st.session_state["last_cabin_text"] = raw_text
             
             src_code_val = LANG_OPTIONS[src_lang_name_t2]
@@ -219,6 +216,7 @@ with tab2:
                 "translated": translated
             })
 
+    # Giao diện JavaScript thực hiện nhận diện và gọi Google Translate trực tiếp không trễ
     cabin_html_code = f"""
     <!DOCTYPE html>
     <html>
@@ -250,14 +248,21 @@ with tab2:
                 margin-top: 15px;
                 font-weight: bold;
                 font-size: 15px;
-                color: #495057;
+                color: #28a745;
             }}
             #live-box {{
                 margin-top: 12px;
                 font-style: italic;
                 color: #0056b3;
-                font-size: 17px;
-                min-height: 28px;
+                font-size: 18px;
+                min-height: 30px;
+            }}
+            #live-translated {{
+                margin-top: 8px;
+                font-weight: bold;
+                color: #28a745;
+                font-size: 19px;
+                min-height: 30px;
             }}
         </style>
     </head>
@@ -267,15 +272,14 @@ with tab2:
             <button id="start-btn" class="btn-control btn-start" onclick="startCabin()">🔴 KÍCH HOẠT CABIN TRỰC TIẾP</button>
             <button id="stop-btn" class="btn-control btn-stop" onclick="stopCabin()" disabled>⏹️ DỪNG CABIN</button>
         </div>
-        <div id="status-badge">Trạng thái: Đang sẵn sàng kết nối Microphone...</div>
-        <div id="live-box">Chưa có âm thanh đầu vào...</div>
+        <div id="status-badge">Trạng thái: Sẵn sàng kết nối Microphone...</div>
+        <div id="live-box">🎙️ Đang nghe: [Chưa có giọng nói]</div>
+        <div id="live-translated">⚡ Bản dịch cabin realtime: [Đang chờ...]</div>
     </div>
 
     <script>
         var recognition;
         var isRunning = false;
-        var silenceTimer = null;
-        var accumulatedSentence = "";
 
         function updateStreamlitInput(text) {{
             const doc = window.parent.document;
@@ -293,6 +297,18 @@ with tab2:
             }}
         }}
 
+        async function quickTranslate(text) {{
+            try {{
+                let url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl={LANG_OPTIONS[src_lang_name_t2]}&tl={tgt_lang_code}&dt=t&q=" + encodeURIComponent(text);
+                let response = await fetch(url);
+                let data = await response.json();
+                let translated = data[0].map(item => item[0]).join("");
+                return translated;
+            }} catch(e) {{
+                return "[Lỗi dịch realtime]";
+            }}
+        }}
+
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {{
             document.getElementById('status-badge').innerText = '❌ Trình duyệt không hỗ trợ Web Speech API. Hãy dùng Google Chrome hoặc Microsoft Edge!';
         }} else {{
@@ -304,12 +320,12 @@ with tab2:
 
             recognition.onstart = function() {{
                 isRunning = true;
-                document.getElementById('status-badge').innerHTML = '🟢 Cabin đang mở mic liên tục...';
+                document.getElementById('status-badgeinnerHTML = '🟢 Cabin đang mở mic liên tục (Song song đuổi theo người nói)...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
 
-            recognition.onresult = function(event) {{
+            recognition.onresult = async function(event) {{
                 let interim = '';
                 let finalStr = '';
 
@@ -323,17 +339,15 @@ with tab2:
 
                 let currentSpoken = finalStr || interim;
                 if (currentSpoken.trim() !== "") {{
-                    accumulatedSentence = currentSpoken;
-                    document.getElementById('live-box').innerText = '🎙️ Đang nghe: "' + accumulatedSentence + '"';
+                    document.getElementById('live-box').innerText = '🎙️ Đang nghe: "' + currentSpoken + '"';
+                    
+                    // Dịch ngay lập tức hiển thị song song chữ chạy
+                    let translatedResult = await quickTranslate(currentSpoken);
+                    document.getElementById('live-translated').innerText = '⚡ Bản dịch: "' + translatedResult + '"';
 
-                    clearTimeout(silenceTimer);
-                    silenceTimer = setTimeout(function() {{
-                        if (accumulatedSentence.trim() !== "") {{
-                            document.getElementById('live-box').innerText = '⚡ Đang dịch thuật...';
-                            updateStreamlitInput(accumulatedSentence);
-                            accumulatedSentence = "";
-                        }}
-                    }}, 1200);
+                    if (finalStr) {{
+                        updateStreamlitInput(finalStr);
+                    }}
                 }}
             }};
 
@@ -344,7 +358,6 @@ with tab2:
                     document.getElementById('status-badge').innerText = '⏹️ Đã dừng hệ thống cabin.';
                     document.getElementById('start-btn').disabled = false;
                     document.getElementById('stop-btn').disabled = true;
-                    document.getElementById('live-box').innerText = 'Phiên dịch đã kết thúc.';
                 }}
             }};
         }}
@@ -358,7 +371,6 @@ with tab2:
 
         function stopCabin() {{
             isRunning = false;
-            clearTimeout(silenceTimer);
             if (recognition) {{ recognition.stop(); }}
         }}
     </script>
@@ -366,10 +378,10 @@ with tab2:
     </html>
     """
 
-    components.html(cabin_html_code, height=160)
+    components.html(cabin_html_code, height=190)
 
     st.write("---")
-    st.markdown("### 📺 Nhật ký trực tiếp (Live Stream Translation Log)")
+    st.markdown("### 📺 Nhật ký lưu trữ trực tiếp")
     
     col_hist_left, col_hist_right = st.columns(2)
     with col_hist_left:
