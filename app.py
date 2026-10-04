@@ -36,7 +36,7 @@ VOICE_MAP = {
 }
 
 # ------------------------------------------------------------------------------
-# HÀM DỊCH THUẬT AN TOÀN (MYMEMORY) - TAB 1 GIỮ NGUYÊN
+# HÀM DỊCH THUẬT AN TOÀN (MYMEMORY) - TAB 1 & TAB 2
 # ------------------------------------------------------------------------------
 @st.cache_data(show_spinner=False, ttl=3600)
 def translate_stable(text, src_code, tgt_code):
@@ -94,6 +94,9 @@ if not st.session_state["authenticated"]:
             st.session_state["authenticated"] = True
             st.rerun()
     st.stop()
+
+if "conference_logs" not in st.session_state:
+    st.session_state["conference_logs"] = []
 
 tab1, tab2 = st.tabs([
     "💬 Dịch văn bản & Hội thoại", 
@@ -160,24 +163,46 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (FIX CHUẨN MÃ NGUỒN VÀ ĐÍCH)
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (PYTHON BRIDGE + 2 CỘT SONG SONG)
 # ==============================================================================
 with tab2:
     st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    st.markdown("Hệ thống nhận diện giọng nói trực tiếp và hiển thị bản dịch chính xác[cite: 1, 14].")
+    st.markdown("Hệ thống nhận diện giọng nói trực tiếp, dịch thuật chuẩn xác qua Python và hiển thị 2 cột song song.")
 
-    col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
+    col_t2_src, col_t2_tgt, col_t2_clear = st.columns([2, 2, 1])
     with col_t2_src:
         src_lang_name_t2 = st.selectbox("Ngôn ngữ nói (Mic):", list(LANG_OPTIONS.keys()), index=0, key="t2_src")
     with col_t2_tgt:
         tgt_lang_name_t2 = st.selectbox("Ngôn ngữ dịch out:", list(LANG_OPTIONS.keys()), index=1, key="t2_tgt")
+    with col_t2_clear:
+        st.write("")
+        st.write("")
+        if st.button("🧹 Xóa nhật ký", use_container_width=True):
+            st.session_state["conference_logs"] = []
+            st.rerun()
 
     lang_code_js = "vi-VN" if LANG_OPTIONS[src_lang_name_t2] == "vi" else "en-US"
-    # Lấy chính xác mã code ngắn gọn dạng chuỗi (ví dụ: 'vi', 'en', 'zh-CN')
     src_code_val = LANG_OPTIONS[src_lang_name_t2]
     tgt_code_val = LANG_OPTIONS[tgt_lang_name_t2]
 
     st.write("---")
+
+    # Ô ẩn nhận dữ liệu stream từ JS
+    spoken_text_input = st.text_input("Stream Data Bridge", key="cabin_stream_bridge", label_visibility="collapsed")
+
+    if spoken_text_input and spoken_text_input.strip():
+        raw_text = spoken_text_input.strip()
+        if "last_cabin_spoken" not in st.session_state or st.session_state["last_cabin_spoken"] != raw_text:
+            st.session_state["last_cabin_spoken"] = raw_text
+            
+            # Dịch chuẩn xác bằng hàm Python translate_stable
+            translated_result = translate_stable(raw_text, src_code_val, tgt_code_val)
+            
+            st.session_state["conference_logs"].insert(0, {
+                "time": time.strftime("%H:%M:%S"),
+                "original": raw_text,
+                "translated": translated_result
+            })
 
     cabin_html_code = f"""
     <!DOCTYPE html>
@@ -212,33 +237,11 @@ with tab2:
                 font-size: 15px;
                 color: #28a745;
             }}
-            .cabin-grid {{
-                display: flex;
-                gap: 15px;
-                margin-top: 15px;
-            }}
-            .cabin-panel {{
-                flex: 1;
-                background: #ffffff;
-                border: 1px solid #ced4da;
-                border-radius: 8px;
-                padding: 15px;
-                text-align: left;
-                max-height: 250px;
-                overflow-y: auto;
-            }}
-            .panel-title {{
-                font-weight: bold;
-                font-size: 14px;
-                margin-bottom: 8px;
-                border-bottom: 1px solid #e9ecef;
-                padding-bottom: 5px;
-            }}
-            .panel-content {{
+            #live-preview {{
+                margin-top: 10px;
+                font-style: italic;
+                color: #0056b3;
                 font-size: 16px;
-                line-height: 1.5;
-                word-wrap: break-word;
-                white-space: pre-wrap;
             }}
         </style>
     </head>
@@ -249,54 +252,27 @@ with tab2:
             <button id="stop-btn" class="btn-control btn-stop" onclick="stopCabin()" disabled>⏹️ DỪNG CABIN</button>
         </div>
         <div id="status-badge">Trạng thái: Sẵn sàng kết nối Microphone...</div>
-        
-        <div class="cabin-grid">
-            <!-- Cột trái: Văn bản dịch -->
-            <div class="cabin-panel">
-                <div class="panel-title" style="color: #28a745;">🌐 Bản dịch Cabin (Realtime)</div>
-                <div id="live-translated-text" class="panel-content" style="color: #28a745; font-weight: bold;">[Đang chờ bản dịch...]</div>
-            </div>
-            <!-- Cột phải: Văn bản gốc -->
-            <div class="cabin-panel">
-                <div class="panel-title" style="color: #0056b3;">🎙️ Phát biểu Gốc (Mic)</div>
-                <div id="live-original-text" class="panel-content" style="color: #0056b3; font-style: italic;">[Chưa có giọng nói...]</div>
-            </div>
-        </div>
+        <div id="live-preview">🎙️ Đang nghe: [Chưa có giọng nói]</div>
     </div>
 
     <script>
         var recognition;
         var isRunning = false;
-        var historyOriginal = "";
-        var historyTranslated = "";
 
-        async function quickTranslate(text) {{
-            if (!text || text.trim() === "") return "";
-            let chunk = text.length > 350 ? text.substring(text.length - 350) : text;
-
-            // Sử dụng chính xác mã code ngôn ngữ nguồn và đích
-            try {{
-                let url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_code_val}&tl={tgt_code_val}&dt=t&q=" + encodeURIComponent(chunk);
-                let response = await fetch(url);
-                if (response.ok) {{
-                    let data = await response.json();
-                    let translated = data[0].map(item => item[0]).join("");
-                    if (translated) return translated;
-                }}
-            }} catch(e) {{}}
-
-            try {{
-                let url2 = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(chunk) + "&langpair={src_code_val}|{tgt_code_val}";
-                let response2 = await fetch(url2);
-                if (response2.ok) {{
-                    let data2 = await response2.json();
-                    if (data2 && data2.responseData && data2.responseData.translatedText) {{
-                        return data2.responseData.translatedText;
+        function updateStreamlitInput(text) {{
+            const doc = window.parent.document;
+            const inputs = doc.querySelectorAll('input[type="text"]');
+            for (let input of inputs) {{
+                if (input.placeholder === "Stream Data Bridge" || input.value !== undefined) {{
+                    let setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                    if (setter) {{
+                        setter.call(input, text);
+                        input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        break;
                     }}
                 }}
-            }} catch(e) {{}}
-
-            return chunk;
+            }}
         }}
 
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {{
@@ -315,38 +291,24 @@ with tab2:
                 document.getElementById('stop-btn').disabled = false;
             }};
 
-            recognition.onresult = async function(event) {{
+            recognition.onresult = function(event) {{
                 let interim = '';
                 let finalStr = '';
 
                 for (let i = event.resultIndex; i < event.results.length; ++i) {{
                     if (event.results[i].isFinal) {{
-                        finalStr += event.results[i][0].transcript + " ";
+                        finalStr += event.results[i][0].transcript;
                     }} else {{
                         interim += event.results[i][0].transcript;
                     }}
                 }}
 
-                if (finalStr.trim() !== "") {{
-                    historyOriginal += finalStr;
-                    let translatedChunk = await quickTranslate(finalStr);
-                    historyTranslated += translatedChunk + " ";
-
-                    let origBox = document.getElementById('live-original-text');
-                    origBox.innerText = historyOriginal;
-                    origBox.scrollTop = origBox.scrollHeight;
-
-                    let transBox = document.getElementById('live-translated-text');
-                    transBox.innerText = historyTranslated;
-                    transBox.scrollTop = transBox.scrollHeight;
-                }} else if (interim.trim() !== "") {{
-                    let previewOrig = historyOriginal + interim;
-                    let origBox = document.getElementById('live-original-text');
-                    origBox.innerText = previewOrig;
-                    
-                    let previewTrans = await quickTranslate(interim);
-                    let transBox = document.getElementById('live-translated-text');
-                    transBox.innerText = historyTranslated + previewTrans;
+                let currentSpoken = finalStr || interim;
+                if (currentSpoken.trim() !== "") {{
+                    document.getElementById('live-preview').innerText = '🎙️ Đang nghe: "' + currentSpoken + '"';
+                    if (finalStr) {{
+                        updateStreamlitInput(finalStr);
+                    }}
                 }}
             }};
 
@@ -364,8 +326,6 @@ with tab2:
         function startCabin() {{
             if (recognition) {{
                 isRunning = true;
-                historyOriginal = "";
-                historyTranslated = "";
                 try {{ recognition.start(); }} catch (e) {{}}
             }}
         }}
@@ -379,4 +339,24 @@ with tab2:
     </html>
     """
 
-    components.html(cabin_html_code, height=350)
+    components.html(cabin_html_code, height=150)
+
+    st.write("---")
+    st.markdown("### 📺 Nhật ký trực tiếp (Hiển thị 2 cột song song)")
+    
+    col_hist_left, col_hist_right = st.columns(2)
+    with col_hist_left:
+        st.markdown(f"#### 🌐 Bản dịch Cabin ({tgt_lang_name_t2})")
+        if st.session_state["conference_logs"]:
+            for item in st.session_state["conference_logs"]:
+                st.success(f"⏱️ **[{item['time']}]** {item['translated']}")
+        else:
+            st.caption("Đang chờ bản dịch...")
+
+    with col_hist_right:
+        st.markdown(f"#### 🌐 Phát biểu gốc ({src_lang_name_t2})")
+        if st.session_state["conference_logs"]:
+            for item in st.session_state["conference_logs"]:
+                st.info(f"⏱️ **[{item['time']}]** {item['original']}")
+        else:
+            st.caption("Chưa có dữ liệu hội thoại trực tiếp...")
