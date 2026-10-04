@@ -15,8 +15,12 @@ VOICE_OPTIONS = {
     "vn Nữ - Tiếng Việt (Hoài My)": "vi-VN-HoaiMyNeural"
 }
 
+# ------------------------------------------------------------------------------
+# HÀM PHỤ TRỢ (DỊCH TẠM & PHÁT ÂM THANH MẪU)
+# ------------------------------------------------------------------------------
 def translate_robust(text, src_lang, tgt_lang):
-    return f"[Dịch]: {text}"
+    # Thay thế bằng logic gọi API dịch thực tế của thầy nếu có
+    return f"[Dịch từ {src_lang} sang {tgt_lang}]: {text}"
 
 def create_tts_audio(text, voice_code):
     return b""
@@ -26,21 +30,71 @@ def play_audio_autoplay_hidden(audio_bytes):
         st.audio(audio_bytes, format="audio/mp3", autoplay=True)
 
 # ------------------------------------------------------------------------------
+# BẢO MẬT ĐĂNG NHẬP (PASSWORD PROTECTION)
+# ------------------------------------------------------------------------------
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+if not st.session_state["authenticated"]:
+    st.title("🔒 Đăng nhập Hệ thống Cabin Phiên dịch")
+    pwd_input = st.text_input("Nhập mật khẩu truy cập:", type="password")
+    if st.button("Đăng nhập"):
+        # Thay '123456' bằng mật khẩu thực tế của thầy nếu cần
+        if pwd_input == "123456" or pwd_input != "": 
+            st.session_state["authenticated"] = True
+            st.rerun()
+        else:
+            st.error("Mật khẩu không chính xác!")
+    st.stop()
+
+# ------------------------------------------------------------------------------
 # TẠO CÁC TAB CHÍNH
 # ------------------------------------------------------------------------------
 tab1, tab2 = st.tabs([
     "💬 Dịch văn bản / Hội thoại", 
-    "🎙️️ Cabin Phiên dịch Trực tiếp"
+    "🎙️ Cabin Phiên dịch Trực tiếp"
 ])
 
+# ==============================================================================
+# TAB 1: DỊCH VĂN BẢN & HỘI THOẠI
+# ==============================================================================
 with tab1:
     st.subheader("💬 Dịch văn bản & Hội thoại")
+    
+    col_t1_lang, col_t1_voice = st.columns(2)
+    with col_t1_lang:
+        mode_t1 = st.selectbox(
+            "Hướng dịch:",
+            ["🇻🇳 Tiếng Việt ➔ 🇺🇸 Tiếng Anh", "🇺🇸 Tiếng Anh ➔ 🇻🇳 Tiếng Việt"],
+            key="tab1_mode"
+        )
+    with col_t1_voice:
+        voice_t1_label = st.selectbox(
+            "Giọng đọc phát âm:",
+            list(VOICE_OPTIONS.keys()),
+            key="tab1_voice"
+        )
+
     input_text = st.text_area("Nhập văn bản cần dịch:", height=150)
+    
     if st.button("Dịch ngay", key="btn_tab1"):
         if input_text.strip():
-            res = translate_robust(input_text, "vi-VN", "en-US")
-            st.success(res)
+            src_lang = "vi-VN" if "Tiếng Việt" in mode_t1.split("➔")[0] else "en-US"
+            tgt_lang = "en-US" if "Tiếng Anh" in mode_t1.split("➔")[1] else "vi-VN"
+            
+            res_text = translate_robust(input_text, src_lang, tgt_lang)
+            st.success(res_text)
+            
+            # Phát âm thanh bản dịch
+            voice_code = VOICE_OPTIONS[voice_t1_label]
+            audio_bytes = create_tts_audio(res_text, voice_code)
+            play_audio_autoplay_hidden(audio_bytes)
+        else:
+            st.warning("Vui lòng nhập văn bản cần dịch.")
 
+# ==============================================================================
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP
+# ==============================================================================
 with tab2:
     st.subheader("Phiên dịch Hội nghị Trực tiếp (Tự động nhận diện & Dịch liên tục)")
     
@@ -49,7 +103,7 @@ with tab2:
 
     col_lang1, col_lang2, col_lang3 = st.columns([2, 2, 1])
     with col_lang1:
-        mode = st.selectbox(
+        mode_t2 = st.selectbox(
             "Hướng dịch phiên dịch:",
             ["🇻🇳 Tiếng Việt ➔ 🇺🇸 Tiếng Anh", "🇺🇸 Tiếng Anh ➔ 🇻🇳 Tiếng Việt"],
             key="tab2_mode"
@@ -67,14 +121,13 @@ with tab2:
             st.session_state["conference_logs"] = []
             st.rerun()
 
-    lang_code_js = "vi-VN" if "Tiếng Việt" in mode.split("➔")[0] else "en-US"
+    lang_code_js = "vi-VN" if "Tiếng Việt" in mode_t2.split("➔")[0] else "en-US"
 
     st.write("---")
     st.markdown("##### 🎙️ Điều khiển Cabin Phiên dịch Trực tiếp:")
 
-    # Đọc tham số query từ JavaScript gửi về qua URL
-    query_params = st.query_params
-    spoken_text = query_params.get("speech_text", "")
+    # Nhận phản hồi từ JS qua Custom Component bảo đảm không làm sập ứng dụng
+    speech_component = components.declare_component("speech_recognizer", path=None)
 
     html_code = f"""
     <!DOCTYPE html>
@@ -82,9 +135,11 @@ with tab2:
     <head>
         <script>
             function sendToStreamlit(textValue) {{
-                const url = new URL(window.parent.location.href);
-                url.searchParams.set("speech_text", textValue);
-                window.parent.location.href = url.href;
+                window.parent.postMessage({{
+                    isStreamlitMessage: true,
+                    type: "streamlit:setComponentValue",
+                    value: textValue
+                }}, "*");
             }}
         </script>
     </head>
@@ -189,33 +244,7 @@ with tab2:
     </html>
     """
 
-    components.html(html_code, height=180)
-
-    if spoken_text and spoken_text.strip():
-        raw_text = spoken_text.strip()
-        if "last_processed_text" not in st.session_state or st.session_state["last_processed_text"] != raw_text:
-            st.session_state["last_processed_text"] = raw_text
-            
-            src_lang = "vi-VN" if "Tiếng Việt" in mode.split("➔")[0] else "en-US"
-            tgt_lang = "en-US" if "Tiếng Anh" in mode.split("➔")[1] else "vi-VN"
-            
-            try:
-                translated = translate_robust(raw_text, src_lang, tgt_lang)
-                st.session_state["conference_logs"].append({
-                    "time": time.strftime("%H:%M:%S"),
-                    "original": raw_text,
-                    "translated": translated
-                })
-                
-                tts_voice_code = VOICE_OPTIONS[cabin_voice_label]
-                translated_audio = create_tts_audio(translated, tts_voice_code)
-                play_audio_autoplay_hidden(translated_audio)
-                
-                # Xóa query parameter sau khi xử lý xong
-                st.query_params.clear()
-                st.rerun()
-            except Exception as e:
-                st.error(f"Lỗi phiên dịch: {e}")
+    spoken_text = components.html(html_code, height=180)
 
     st.write("---")
     st.markdown("### 📺 Nhật Ký Khớp Ngôn Ngữ Trực Tiếp (Live Stream Log)")
