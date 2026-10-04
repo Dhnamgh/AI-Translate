@@ -101,9 +101,6 @@ if not st.session_state["authenticated"]:
             st.rerun()
     st.stop()
 
-if "conference_logs" not in st.session_state:
-    st.session_state["conference_logs"] = []
-
 # ------------------------------------------------------------------------------
 # GIAO DIỆN CHÍNH (TABS)
 # ------------------------------------------------------------------------------
@@ -140,7 +137,7 @@ with tab1:
         else:
             st.warning("Vui lòng nhập văn bản cần dịch.")
 
-    # Hiển thị kết quả và cho phép thay đổi giọng đọc / tốc độ trực tiếp không cần bấm dịch lại
+    # Hiển thị kết quả và thay đổi giọng đọc / tốc độ trực tiếp không cần bấm dịch lại
     if "last_translation" in st.session_state and st.session_state["last_translation"]:
         st.markdown("### Kết quả dịch:")
         st.success(st.session_state["last_translation"])
@@ -191,7 +188,6 @@ with tab2:
 
     st.write("---")
 
-    # Giao diện JavaScript cabin độc lập, mượt mà hoàn toàn không gây đơ trang
     cabin_html_code = f"""
     <!DOCTYPE html>
     <html>
@@ -333,4 +329,3 @@ with tab2:
     """
 
     components.html(cabin_html_code, height=200)
-```[cite: 1]
