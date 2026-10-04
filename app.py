@@ -3,10 +3,10 @@ import streamlit as st
 import asyncio
 import edge_tts
 from deep_translator import GoogleTranslator
-from google import genai
-from google.genai import types
+import tempfile
+import os
 
-# 1. Cấu hình trang
+# 1. CẤU HÌNH TRANG
 st.set_page_config(
     page_title="AI Translate",
     page_icon="🌐",
@@ -24,7 +24,6 @@ def check_password():
         user_input = st.text_input("Nhập mật khẩu để tiếp tục:", type="password")
         
         if st.button("Đăng nhập", type="primary"):
-            # Lấy mật khẩu từ Secrets, mặc định là 123456 nếu chưa cấu hình
             correct_password = st.secrets.get("APP_PASSWORD", "123456")
             if user_input == correct_password:
                 st.session_state["authenticated"] = True
@@ -37,61 +36,33 @@ def check_password():
 if not check_password():
     st.stop()
 
-# 3. LẤY DANH SÁCH API KEYS TỪ SECRETS
-# Hỗ trợ nhận 1 string duy nhất hoặc 1 danh sách nhiều API Keys để xoay vòng
-raw_keys = st.secrets.get("GOOGLE_API_KEYS", st.secrets.get("GOOGLE_API_KEY", []))
-if isinstance(raw_keys, str):
-    API_KEYS = [raw_keys]
-else:
-    API_KEYS = list(raw_keys)
-
-# Danh sách giọng đọc mẫu của Google AI Studio
-GOOGLE_VOICES = {
-    "Nam - Trầm ấm, Trang trọng (Fenrir)": "Fenrir",
-    "Nam - Truyền cảm (Puck)": "Puck",
-    "Nam - Điềm tĩnh, Báo cáo (Charon)": "Charon",
-    "Nữ - Nhẹ nhàng, Rõ chữ (Kore)": "Kore",
-    "Nữ - Truyền cảm, Thuyết trình (Aoede)": "Aoede"
+# 3. DANH SÁCH GIỌNG ĐỌC
+VOICE_OPTIONS = {
+    "Nữ - Miền Bắc (Hoài Mỹ - Báo cáo / Thuyết trình)": "vi-VN-HoaiMyNeural",
+    "Nam - Miền Bắc (Nam Minh - Trang trọng / Giảng dạy)": "vi-VN-NamMinhNeural",
 }
 
-# 4. HÀM GỌI GEMINI TTS CÓ TỰ ĐỘNG XOAY VÒNG KEY (KEY ROTATION)
-def generate_google_tts(text, voice_name, style_prompt):
-    if not API_KEYS:
-        raise Exception("Chưa cấu hình GOOGLE_API_KEYS trong Streamlit Secrets!")
+# 4. HÀM TẠO ÂM THANH BẰNG EDGE-TTS (HỖ TRỢ ĐIỀU CHỈNH TỐC ĐỘ / TÔNG GIỌNG)
+async def generate_edge_audio_async(text, voice_code, rate_str, pitch_str, output_path):
+    communicate = edge_tts.Communicate(text, voice_code, rate=rate_str, pitch=pitch_str)
+    await communicate.save(output_path)
+
+def create_tts_audio(text, voice_code, speed_percent, pitch_hz):
+    rate_str = f"{'+' if speed_percent >= 0 else ''}{speed_percent}%"
+    pitch_str = f"{'+' if pitch_hz >= 0 else ''}{pitch_hz}Hz"
     
-    # Xáo trộn danh sách Key để phân bổ đều lưu lượng
-    shuffled_keys = API_KEYS.copy()
-    random.shuffle(shuffled_keys)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
+        tmp_path = tmp_file.name
     
-    last_error = None
-    for api_key in shuffled_keys:
-        try:
-            client = genai.Client(api_key=api_key)
-            full_prompt = f"{style_prompt}\n\nVăn bản cần đọc:\n{text}"
-            
-            response = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=full_prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="audio/mp3",
-                    speech_config=types.SpeechConfig(
-                        voice_config=types.VoiceConfig(
-                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                voice_name=voice_name
-                            )
-                        )
-                    )
-                )
-            )
-            
-            for part in response.candidates[0].content.parts:
-                if part.inline_data:
-                    return part.inline_data.data
-        except Exception as e:
-            last_error = e
-            continue  # Nếu Key hiện tại bị lỗi hạn mức (Quota), tự động nhảy sang Key tiếp theo
-            
-    raise Exception(f"Tất cả API Keys dự phòng đều bị hết hạn mức hoặc lỗi: {last_error}")
+    asyncio.run(generate_edge_audio_async(text, voice_code, rate_str, pitch_str, tmp_path))
+    
+    with open(tmp_path, "rb") as f:
+        audio_bytes = f.read()
+        
+    if os.path.exists(tmp_path):
+        os.remove(tmp_path)
+        
+    return audio_bytes
 
 # --- GIAO DIỆN ỨNG DỤNG ---
 st.title("AI Translate")
@@ -108,24 +79,32 @@ with tab1:
     
     with col_left:
         selected_voice_label = st.selectbox(
-            "1. Chọn giọng đọc Google:",
-            list(GOOGLE_VOICES.keys()),
+            "1. Chọn giọng đọc AI:",
+            list(VOICE_OPTIONS.keys()),
             index=0
         )
-        voice_code = GOOGLE_VOICES[selected_voice_label]
+        voice_code = VOICE_OPTIONS[selected_voice_label]
         
-        style_instruction = st.selectbox(
-            "2. Yêu cầu phong cách & giọng vùng miền (Prompt):",
-            [
-                "Hãy đọc bằng giọng Nam miền Bắc, phong cách báo cáo khoa học, phát âm rõ ràng, tốc độ vừa phải, trang trọng.",
-                "Hãy đọc bằng giọng Nữ miền Bắc, phong cách thuyết trình hội thảo, truyền cảm.",
-                "Hãy đọc bằng giọng Nam miền Nam, tự nhiên, điềm tĩnh.",
-                "Hãy đọc bằng giọng Nữ miền Nam, nhẹ nhàng, rõ chữ."
-            ]
+        speech_rate = st.slider(
+            "2. Điều chỉnh Tốc độ đọc (%):",
+            min_value=-40,
+            max_value=40,
+            value=-5,
+            step=5,
+            help="Đọc báo cáo khoa học nên để khoảng -5% đến 0% để âm thanh tròn chữ, rõ ràng."
+        )
+
+        pitch_val = st.slider(
+            "3. Điều chỉnh Cao độ (Pitch Hz):",
+            min_value=-20,
+            max_value=20,
+            value=0,
+            step=2,
+            help="Tăng/giảm độ trầm ấm của giọng đọc."
         )
 
         text_input = st.text_area(
-            "3. Nhập nội dung văn bản / bài báo cáo:",
+            "4. Nhập nội dung văn bản / bài báo cáo:",
             height=200,
             placeholder="Nhập văn bản cần chuyển thành giọng đọc..."
         )
@@ -138,9 +117,9 @@ with tab1:
             if not text_input.strip():
                 st.warning("⚠️ Vui lòng nhập nội dung văn bản!")
             else:
-                with st.spinner("⏳ Đang tạo âm thanh từ Google AI Studio..."):
+                with st.spinner("⏳ Đang khởi tạo giọng đọc AI..."):
                     try:
-                        audio_data = generate_google_tts(text_input, voice_code, style_instruction)
+                        audio_data = create_tts_audio(text_input, voice_code, speech_rate, pitch_val)
                         st.success("✅ Tạo âm thanh thành công!")
                         
                         st.audio(audio_data, format="audio/mp3")
@@ -172,11 +151,14 @@ with tab2:
     
     if btn_translate and speech_text.strip():
         with st.spinner("⏳ Đang xử lý dịch thuật..."):
-            lang_map = {"Tiếng Việt": "vi", "Tiếng Anh": "en"}
-            translated_text = GoogleTranslator(
-                source=lang_map[src_lang], 
-                target=lang_map[tgt_lang]
-            ).translate(speech_text)
-            
-            st.markdown(f"**Bản dịch ({tgt_lang}):**")
-            st.success(translated_text)
+            try:
+                lang_map = {"Tiếng Việt": "vi", "Tiếng Anh": "en"}
+                translated_text = GoogleTranslator(
+                    source=lang_map[src_lang], 
+                    target=lang_map[tgt_lang]
+                ).translate(speech_text)
+                
+                st.markdown(f"**Bản dịch ({tgt_lang}):**")
+                st.success(translated_text)
+            except Exception as e:
+                st.error(f"❌ Lỗi dịch thuật: {e}")
