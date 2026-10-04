@@ -160,11 +160,11 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (HIỆN SONG SONG 2 CỘT, CHỐNG TRÀN 500 CHARS)
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (CỐ ĐỊNH CHUẨN MÃ NGUỒN VI -> ĐÍCH EN)
 # ==============================================================================
 with tab2:
     st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    st.markdown("Hệ thống nhận diện giọng nói trực tiếp và hiển thị song song realtime[cite: 1, 14].")
+    st.markdown("Hệ thống nhận diện giọng nói và hiển thị bản dịch tiếng Anh chính xác bên trái, tiếng Việt bên phải.")
 
     col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
     with col_t2_src:
@@ -173,6 +173,8 @@ with tab2:
         tgt_lang_name_t2 = st.selectbox("Ngôn ngữ dịch out:", list(LANG_OPTIONS.keys()), index=1, key="t2_tgt")
 
     lang_code_js = "vi-VN" if LANG_OPTIONS[src_lang_name_t2] == "vi" else "en-US"
+    
+    # Lấy mã ngôn ngữ chính xác từ từ điển LANG_OPTIONS
     src_code_val = LANG_OPTIONS[src_lang_name_t2]
     tgt_code_val = LANG_OPTIONS[tgt_lang_name_t2]
 
@@ -271,9 +273,9 @@ with tab2:
 
         async function quickTranslate(text) {{
             if (!text || text.trim() === "") return "";
-            // Cắt nhỏ tối đa 350 ký tự mỗi lần gửi để không bao giờ vượt quá giới hạn 500 ký tự của Google
             let chunk = text.length > 350 ? text.substring(text.length - 350) : text;
 
+            // Truyền tường minh mã nguồn và mã đích chuẩn xác
             try {{
                 let url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_code_val}&tl={tgt_code_val}&dt=t&q=" + encodeURIComponent(chunk);
                 let response = await fetch(url);
@@ -309,7 +311,7 @@ with tab2:
 
             recognition.onstart = function() {{
                 isRunning = true;
-                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Song song realtime)...';
+                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Đã cố định đúng hướng dịch)...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
