@@ -1,0 +1,16 @@
+name: Keep Streamlit App Awake
+
+on:
+  schedule:
+    # Chạy tự động mỗi 15 phút (Cron syntax)
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # Cho phép nhấn chạy thủ công khi cần
+
+jobs:
+  ping-app:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send ping request to Streamlit App
+        run: |
+          curl -s https://mytranslate.streamlit.app > /dev/null
+          echo "App pinged successfully at $(date)"
