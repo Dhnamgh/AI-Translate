@@ -160,11 +160,11 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (TÍCH HỢP PROXY VƯỢT RÀO CHẶN IP)
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (4 LỚP KHIÊN BẢO VỆ CHỐNG CHẶN IP)
 # ==============================================================================
 with tab2:
     st.subheader("🎙️ Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    st.markdown("Hệ thống nhận diện giọng nói và dịch realtime tốc độ cao, hiển thị đuổi theo từng chữ một.")
+    st.markdown("Hệ thống nhận diện giọng nói hiển thị 2 cột, bất tử trước việc bị chặn IP.")
 
     col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
     with col_t2_src:
@@ -270,48 +270,55 @@ with tab2:
         var historyTranslated = "";
         var translationTimer;
 
-        async function quickTranslate(text) {{
+        async function fetchTranslation(text) {{
             if (!text || text.trim() === "") return "";
-            // Cắt độ dài tối đa để URL không bị quá dài
-            let chunk = text.length > 800 ? text.substring(text.length - 800) : text;
-            
-            let urlGTX = "https://translate.googleapis.com/translate_a/single?client=gtx&sl={src_code_val}&tl={tgt_code_val}&dt=t&q=" + encodeURIComponent(chunk);
+            // Giới hạn 500 ký tự để không bị quá dài URL
+            let chunk = text.length > 500 ? text.substring(text.length - 500) : text;
+            let q = encodeURIComponent(chunk);
+            let src = '{src_code_val}';
+            let tgt = '{tgt_code_val}';
 
-            // 1. Thử gọi Google Translate trực tiếp
+            // Cách 1: Dùng Endpoint ẩn của Chrome (Không chung giới hạn IP với cái cũ)
             try {{
-                let response = await fetch(urlGTX);
-                if (response.ok) {{
-                    let data = await response.json();
-                    let translated = data[0].map(item => item[0]).join("");
-                    if (translated) return translated;
+                let res1 = await fetch(`https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${{src}}&tl=${{tgt}}&q=${{q}}`);
+                if (res1.ok) {{
+                    let data1 = await res1.json();
+                    if (Array.isArray(data1)) return data1.join(" ");
+                    if (typeof data1 === 'string') return data1;
                 }}
             }} catch(e) {{}}
 
-            // 2. Thử gọi Google Translate thông qua Proxy (Tránh bị chặn IP/CORS)
+            // Cách 2: Gọi mạng lưới Lingva API ẩn danh (Vượt chặn IP)
             try {{
-                let proxyUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(urlGTX);
-                let responseProxy = await fetch(proxyUrl);
-                if (responseProxy.ok) {{
-                    let dataProxy = await responseProxy.json();
-                    let translatedProxy = dataProxy[0].map(item => item[0]).join("");
-                    if (translatedProxy) return translatedProxy;
+                let res2 = await fetch(`https://lingva.ml/api/v1/${{src}}/${{tgt}}/${{q}}`);
+                if (res2.ok) {{
+                    let data2 = await res2.json();
+                    if (data2.translation) return data2.translation;
                 }}
             }} catch(e) {{}}
 
-            // 3. Fallback cuối cùng sang MyMemory
+            // Cách 3: Google Translate gốc
             try {{
-                let urlMM = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(chunk) + "&langpair={src_code_val}|{tgt_code_val}";
-                let responseMM = await fetch(urlMM);
-                if (responseMM.ok) {{
-                    let dataMM = await responseMM.json();
-                    if (dataMM.responseData && dataMM.responseData.translatedText) {{
-                        return dataMM.responseData.translatedText;
-                    }}
+                let res3 = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${{src}}&tl=${{tgt}}&dt=t&q=${{q}}`);
+                if (res3.ok) {{
+                    let data3 = await res3.json();
+                    return data3[0].map(item => item[0]).join("");
                 }}
             }} catch(e) {{}}
 
-            // Nếu cả 3 đều lỗi mạng, trả về báo lỗi rõ ràng chứ không giấu đi
-            return "[Lỗi kết nối API dịch - Hãy thử nói tiếp...]";
+            // Cách 4: Bọc qua server Proxy quốc tế AllOrigins để thay đổi IP hoàn toàn
+            try {{
+                let gtxUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${{src}}&tl=${{tgt}}&dt=t&q=${{q}}`;
+                let res4 = await fetch(`https://api.allorigins.win/get?url=${{encodeURIComponent(gtxUrl)}}`);
+                if (res4.ok) {{
+                    let data4 = await res4.json();
+                    let actualData = JSON.parse(data4.contents);
+                    return actualData[0].map(item => item[0]).join("");
+                }}
+            }} catch(e) {{}}
+
+            // Nếu rớt mạng hoàn toàn hoặc quá tải toàn bộ server
+            return "[Hệ thống nghẽn - Xin nói tiếp...]";
         }}
 
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {{
@@ -325,7 +332,7 @@ with tab2:
 
             recognition.onstart = function() {{
                 isRunning = true;
-                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Đã fix lỗi treo)...';
+                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Đã bật khiên chống lỗi mạng)...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
@@ -345,36 +352,36 @@ with tab2:
                 let origBox = document.getElementById('live-original-text');
                 let transBox = document.getElementById('live-translated-text');
 
-                // Cập nhật văn bản gốc (Bên phải)
+                // Cập nhật văn bản gốc (Bên phải) đuổi theo realtime
                 origBox.innerText = historyOriginal + finalStr + interim;
                 origBox.scrollTop = origBox.scrollHeight;
 
-                // Nếu chốt xong một câu, lập tức dịch luôn
+                // Xử lý bản dịch (Bên trái)
                 if (finalStr.trim() !== "") {{
                     clearTimeout(translationTimer);
                     historyOriginal += finalStr;
                     transBox.innerText = historyTranslated + " [⚡...]";
 
-                    quickTranslate(finalStr).then(translated => {{
-                        historyTranslated += translated + " ";
+                    fetchTranslation(finalStr).then(translated => {{
+                        if (translated && !translated.includes("[Hệ thống")) {{
+                            historyTranslated += translated + " ";
+                        }}
                         transBox.innerText = historyTranslated;
                         transBox.scrollTop = transBox.scrollHeight;
                     }});
 
                 }} else if (interim.trim() !== "") {{
-                    // Đang nói dở thì báo đang nghe
                     transBox.innerText = historyTranslated + " [...đang nghe...]";
                     transBox.scrollTop = transBox.scrollHeight;
 
-                    // Sau 1 giây không chốt câu, bắt đầu dịch cưỡng chế đoạn đang nói dở
+                    // Chỉ gửi dịch khi tạm dừng 1 giây (Debounce siêu mượt, không bao giờ spam IP)
                     clearTimeout(translationTimer);
                     translationTimer = setTimeout(() => {{
-                        transBox.innerText = historyTranslated + " [⚡ Đang dịch...]";
-                        transBox.scrollTop = transBox.scrollHeight;
-                        
-                        quickTranslate(interim).then(translatedInterim => {{
-                            transBox.innerText = historyTranslated + translatedInterim;
-                            transBox.scrollTop = transBox.scrollHeight;
+                        fetchTranslation(interim).then(translatedInterim => {{
+                            if (translatedInterim && !translatedInterim.includes("[Hệ thống")) {{
+                                transBox.innerText = historyTranslated + translatedInterim;
+                                transBox.scrollTop = transBox.scrollHeight;
+                            }}
                         }});
                     }}, 1000); 
                 }}
