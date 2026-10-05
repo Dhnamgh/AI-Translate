@@ -3,6 +3,7 @@ import json
 import asyncio
 import urllib.parse
 import urllib.request
+import textwrap
 import streamlit as st
 import streamlit.components.v1 as components
 import edge_tts
@@ -68,21 +69,27 @@ def translate_stable(text, src_code, tgt_code):
     if src == "zh-cn": src = "zh-CN"
     if tgt == "zh-cn": tgt = "zh-CN"
 
-    try:
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src}&tl={tgt}&dt=t&q={urllib.parse.quote(text)}"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=10) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            return "".join([item[0] for item in data[0] if item[0]])
-    except Exception:
+    chunks = textwrap.wrap(text, width=1500, replace_whitespace=False)
+    translated_text = ""
+    
+    for chunk in chunks:
         try:
-            url2 = f"https://lingva.ml/api/v1/{src}/{tgt}/{urllib.parse.quote(text)}"
-            req2 = urllib.request.Request(url2, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req2, timeout=10) as response2:
-                data2 = json.loads(response2.read().decode('utf-8'))
-                return data2.get("translation", "Lỗi dịch thuật.")
-        except Exception as e2:
-            return f"Không thể kết nối dịch thuật: {str(e2)}"
+            url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src}&tl={tgt}&dt=t&q={urllib.parse.quote(chunk)}"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                translated_text += "".join([item[0] for item in data[0] if item[0]]) + " "
+        except Exception:
+            try:
+                url2 = f"https://lingva.ml/api/v1/{src}/{tgt}/{urllib.parse.quote(chunk)}"
+                req2 = urllib.request.Request(url2, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req2, timeout=10) as response2:
+                    data2 = json.loads(response2.read().decode('utf-8'))
+                    translated_text += data2.get("translation", "") + " "
+            except Exception as e:
+                return f"Lỗi kết nối dịch thuật: {str(e)}"
+
+    return translated_text.strip()
 
 async def generate_tts_async(text, voice_key, speed_rate, output_filename):
     voice_name = VOICE_MAP.get(voice_key, "en-US-GuyNeural")
@@ -125,7 +132,7 @@ with tab1:
     with col_t1_tgt:
         tgt_lang_name_t1 = st.selectbox("Ngôn ngữ đích:", list(LANG_OPTIONS.keys()), index=1, key="t1_tgt")
 
-    input_text = st.text_area("Nhập văn bản cần dịch:", height=150, placeholder="Dán văn bản cần dịch vào đây...", key="t1_input_text")
+    input_text = st.text_area("Nhập văn bản cần dịch:", height=150, placeholder="Dán văn bản cần dịch vào đây (Hỗ trợ văn bản siêu dài)...", key="t1_input_text")
     
     col_btn1, _ = st.columns([1, 5])
     with col_btn1:
@@ -205,7 +212,7 @@ with tab2:
             .btn-control {{
                 font-family: 'Times New Roman', Times, serif !important;
                 padding: 12px 24px;
-                font-size: 13px !important;
+                font-size: 14px !important;
                 font-weight: bold;
                 border-radius: 8px;
                 border: none;
@@ -236,13 +243,14 @@ with tab2:
                 border-radius: 8px;
                 padding: 15px;
                 text-align: left;
-                height: 480px; 
+                height: 500px; 
                 overflow-y: auto; 
+                box-shadow: inset 0 0 5px rgba(0,0,0,0.05);
             }}
             .panel-title {{
                 font-family: 'Times New Roman', Times, serif !important;
                 font-weight: bold;
-                font-size: 13px !important;
+                font-size: 14px !important;
                 margin-bottom: 10px;
                 border-bottom: 1px solid #e9ecef;
                 padding-bottom: 5px;
@@ -251,7 +259,6 @@ with tab2:
                 font-size: 16px;
                 line-height: 1.6;
                 word-wrap: break-word;
-                white-space: pre-wrap; 
             }}
             #live-translated-text {{ color: #28a745; font-weight: bold; }}
             #live-original-text {{ color: #0056b3; font-style: italic; }}
@@ -261,7 +268,7 @@ with tab2:
                     flex-direction: column;
                 }}
                 .cabin-panel {{
-                    height: 250px; 
+                    height: 300px; 
                 }}
             }}
         </style>
@@ -291,6 +298,9 @@ with tab2:
         var isRunning = false;
         var historyOriginal = "";
         var historyTranslated = "";
+        
+        var translateQueue = [];
+        var isTranslating = false;
         var translationTimer;
         var pauseTimer; 
 
@@ -303,7 +313,7 @@ with tab2:
 
         async function fetchTranslation(text) {{
             if (!text || text.trim() === "") return "";
-            let chunk = text.length > 500 ? text.substring(text.length - 500) : text;
+            let chunk = text.length > 800 ? text.substring(text.length - 800) : text;
             let q = encodeURIComponent(chunk);
             let src = '{src_code_val}';
             let tgt = '{tgt_code_val}';
@@ -336,6 +346,27 @@ with tab2:
             }} catch(e) {{}}
 
             return "[Hệ thống nghẽn...]";
+        }}
+
+        async function processQueue() {{
+            if (isTranslating || translateQueue.length === 0) return;
+            isTranslating = true;
+            
+            let textToTranslate = translateQueue.shift();
+            
+            let translated = await fetchTranslation(textToTranslate);
+            if (translated && !translated.includes("[Hệ thống")) {{
+                let cleanTrans = translated.trim();
+                cleanTrans = cleanTrans.charAt(0).toUpperCase() + cleanTrans.slice(1);
+                if (!cleanTrans.match(/[.!?]$/)) cleanTrans += ".";
+                
+                historyTranslated += cleanTrans + " ";
+                document.getElementById('live-translated-text').innerHTML = historyTranslated;
+                scrollToBottom();
+            }}
+            
+            isTranslating = false;
+            processQueue();
         }}
 
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {{
@@ -374,7 +405,7 @@ with tab2:
                 let origBox = document.getElementById('live-original-text');
                 let transBox = document.getElementById('live-translated-text');
 
-                origBox.innerText = historyOriginal + finalStr + interim;
+                origBox.innerHTML = historyOriginal + finalStr + interim;
                 scrollToBottom(); 
 
                 if (finalStr.trim() !== "") {{
@@ -382,20 +413,11 @@ with tab2:
                     
                     let cleanFinal = finalStr.trim();
                     historyOriginal += cleanFinal + " ";
-                    origBox.innerText = historyOriginal;
+                    origBox.innerHTML = historyOriginal;
                     scrollToBottom();
 
-                    fetchTranslation(cleanFinal).then(translated => {{
-                        if (translated && !translated.includes("[Hệ thống")) {{
-                            let cleanTrans = translated.trim();
-                            cleanTrans = cleanTrans.charAt(0).toUpperCase() + cleanTrans.slice(1);
-                            if (!cleanTrans.match(/[.!?]$/)) cleanTrans += ".";
-                            
-                            historyTranslated += cleanTrans + " ";
-                        }}
-                        transBox.innerText = historyTranslated;
-                        scrollToBottom();
-                    }});
+                    translateQueue.push(cleanFinal);
+                    processQueue();
                 }} 
                 
                 if (interim.trim() !== "") {{
@@ -403,7 +425,7 @@ with tab2:
                     translationTimer = setTimeout(() => {{
                         fetchTranslation(interim).then(translatedInterim => {{
                             if (translatedInterim && !translatedInterim.includes("[Hệ thống")) {{
-                                transBox.innerText = historyTranslated + translatedInterim;
+                                transBox.innerHTML = historyTranslated + translatedInterim;
                                 scrollToBottom();
                             }}
                         }});
@@ -413,22 +435,22 @@ with tab2:
                 pauseTimer = setTimeout(() => {{
                     let hasNewlineAdded = false;
 
-                    if (historyOriginal.trim() !== "" && !historyOriginal.endsWith("\\n\\n")) {{
-                        historyOriginal = historyOriginal.trimEnd() + "\\n\\n";
-                        document.getElementById('live-original-text').innerText = historyOriginal;
+                    if (historyOriginal.trim() !== "" && !historyOriginal.endsWith("<br><br>")) {{
+                        historyOriginal = historyOriginal.trimEnd() + "<br><br>";
+                        origBox.innerHTML = historyOriginal;
                         hasNewlineAdded = true;
                     }}
 
-                    if (historyTranslated.trim() !== "" && !historyTranslated.endsWith("\\n\\n")) {{
-                        historyTranslated = historyTranslated.trimEnd() + "\\n\\n";
-                        document.getElementById('live-translated-text').innerText = historyTranslated;
+                    if (historyTranslated.trim() !== "" && !historyTranslated.endsWith("<br><br>")) {{
+                        historyTranslated = historyTranslated.trimEnd() + "<br><br>";
+                        transBox.innerHTML = historyTranslated;
                         hasNewlineAdded = true;
                     }}
 
                     if (hasNewlineAdded) {{
                         scrollToBottom();
                     }}
-                }}, 1000); 
+                }}, 1200); 
             }};
 
             recognition.onend = function() {{
@@ -447,6 +469,8 @@ with tab2:
                 isRunning = true;
                 historyOriginal = "";
                 historyTranslated = "";
+                translateQueue = [];
+                isTranslating = false;
                 try {{ recognition.start(); }} catch (e) {{}}
             }}
         }}
@@ -460,4 +484,4 @@ with tab2:
     </html>
     """
 
-    components.html(cabin_html_code, height=650)
+    components.html(cabin_html_code, height=750)
