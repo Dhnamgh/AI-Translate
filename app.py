@@ -6,6 +6,7 @@ import urllib.request
 import textwrap
 import streamlit as st
 import streamlit.components.v1 as components
+from deep_translator import GoogleTranslator
 import edge_tts
 
 st.set_page_config(page_title="AI Translate Cabin Pro", layout="wide")
@@ -59,6 +60,7 @@ VOICE_MAP = {
     "vn Nữ - Tiếng Việt (Hoài My)": "vi-VN-HoaiMyNeural"
 }
 
+# --- TAB 1 CORE (ĐÃ KHÓA CỨNG, BẢO ĐẢM TỐC ĐỘ VÀ SỰ CHÍNH XÁC) ---
 @st.cache_data(show_spinner=False, ttl=3600)
 def translate_stable(text, src_code, tgt_code):
     if not text.strip():
@@ -70,37 +72,30 @@ def translate_stable(text, src_code, tgt_code):
     paragraphs = text.split('\n')
     final_translated = []
     
+    translator = GoogleTranslator(source=src, target=tgt)
+    
     for p in paragraphs:
         if not p.strip():
             final_translated.append("")
             continue
             
-        chunks = textwrap.wrap(p, width=1500, replace_whitespace=False)
+        chunks = textwrap.wrap(p, width=2000, replace_whitespace=False)
         p_trans = ""
-        
         for chunk in chunks:
-            success = False
             try:
-                url1 = f"https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl={src}&tl={tgt}&q={urllib.parse.quote(chunk)}"
-                req1 = urllib.request.Request(url1, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req1, timeout=5) as r1:
-                    d1 = json.loads(r1.read().decode('utf-8'))
-                    p_trans += (" ".join(d1) if isinstance(d1, list) else str(d1)) + " "
-                    success = True
-            except:
-                pass
-                
-            if not success:
+                res = translator.translate(chunk)
+                if res: 
+                    p_trans += res + " "
+            except Exception:
                 try:
-                    url2 = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src}&tl={tgt}&dt=t&q={urllib.parse.quote(chunk)}"
-                    req2 = urllib.request.Request(url2, headers={'User-Agent': 'Mozilla/5.0'})
-                    with urllib.request.urlopen(req2, timeout=5) as r2:
-                        d2 = json.loads(r2.read().decode('utf-8'))
-                        p_trans += "".join([item[0] for item in d2[0] if item[0]]) + " "
+                    url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src}&tl={tgt}&dt=t&q={urllib.parse.quote(chunk)}"
+                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req, timeout=10) as response:
+                        data = json.loads(response.read().decode('utf-8'))
+                        p_trans += "".join([item[0] for item in data[0] if item[0]]) + " "
                 except:
-                    p_trans += "[Lỗi dịch thuật, hãy thử lại] "
-            
-            time.sleep(0.1)
+                    p_trans += "[Lỗi kết nối máy chủ Google, vui lòng thử lại] "
+            time.sleep(0.2) 
             
         final_translated.append(p_trans.strip())
 
@@ -194,6 +189,7 @@ with tab1:
             except Exception:
                 pass
 
+# --- TAB 2 CORE (ÉP XUNG TỐC ĐỘ, RÚT NGẮN ĐỘ TRỄ) ---
 with tab2:
     st.subheader("Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
 
@@ -329,24 +325,32 @@ with tab2:
             let src = '{src_code_val}';
             let tgt = '{tgt_code_val}';
 
+            // Thiết lập Timeout 1.5 giây để nếu mạng hơi chậm nó sẽ hủy luôn, không gây nghẽn hàng đợi
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 4000);
+            const timeoutId = setTimeout(() => controller.abort(), 1500);
 
             try {{
-                let p1 = fetch(`https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${{src}}&tl=${{tgt}}&q=${{q}}`, {{signal: controller.signal}})
-                    .then(res => {{ if(!res.ok) throw new Error(); return res.json(); }})
-                    .then(data => Array.isArray(data) ? data.join(" ") : data);
-
-                let p2 = fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${{src}}&tl=${{tgt}}&dt=t&q=${{q}}`, {{signal: controller.signal}})
-                    .then(res => {{ if(!res.ok) throw new Error(); return res.json(); }})
-                    .then(data => data[0].map(item => item[0]).join(""));
-
-                let translated = await Promise.any([p1, p2]);
+                // Ưu tiên cực độ endpoint clients5 của Chrome (Phản hồi thường < 0.2s)
+                let res = await fetch(`https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${{src}}&tl=${{tgt}}&q=${{q}}`, {{signal: controller.signal}});
                 clearTimeout(timeoutId);
-                return translated;
+                
+                if (res.ok) {{
+                    let data = await res.json();
+                    return Array.isArray(data) ? data.join(" ") : data;
+                }}
             }} catch (e) {{
-                return "[Lỗi mạng]";
+                // Nếu clients5 lỗi hoặc timeout, tự động chuyển ngay sang gtx
             }}
+
+            try {{
+                let res2 = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${{src}}&tl=${{tgt}}&dt=t&q=${{q}}`);
+                if (res2.ok) {{
+                    let data2 = await res2.json();
+                    return data2[0].map(item => item[0]).join("");
+                }}
+            }} catch(e) {{}}
+
+            return "[⚡...]";
         }}
 
         function renderUI(interimText = "", interimTransText = "") {{
@@ -392,7 +396,7 @@ with tab2:
             recognition.onstart = function() {{
                 isRunning = true;
                 lastFinalizedIndex = -1; 
-                document.getElementById('status-badge').innerText = 'Trạng thái: Cabin đang mở mic liên tục (Xử lý tốc độ cao)...';
+                document.getElementById('status-badge').innerText = 'Trạng thái: Cabin đang mở mic liên tục (Tốc độ tối đa)...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
@@ -420,13 +424,13 @@ with tab2:
                     
                     let currentIndex = origSegments.length;
                     origSegments.push(cleanOrig);
-                    transSegments.push("[⚡ Đang dịch...]");
+                    transSegments.push("[⚡...]");
                     
                     renderUI(""); 
 
                     fetchTranslation(cleanOrig).then(translated => {{
                         let cleanTrans = translated.trim();
-                        if (cleanTrans && !cleanTrans.includes("[Lỗi")) {{
+                        if (cleanTrans && !cleanTrans.includes("[⚡")) {{
                             cleanTrans = cleanTrans.charAt(0).toUpperCase() + cleanTrans.slice(1);
                             if (!cleanTrans.match(/[.!?]$/)) cleanTrans += ".";
                             transSegments[currentIndex] = cleanTrans;
@@ -441,12 +445,13 @@ with tab2:
                     renderUI(interim.trim());
                     
                     clearTimeout(interimTimer);
+                    // Rút ngắn độ trễ từ 400ms xuống chỉ còn 150ms để bắt chữ gần như tức thì
                     interimTimer = setTimeout(async () => {{
                         let t_interim = await fetchTranslation(interim);
-                        if (t_interim && !t_interim.includes("[Lỗi")) {{
+                        if (t_interim && !t_interim.includes("[⚡")) {{
                             renderUI(interim.trim(), t_interim.trim());
                         }}
-                    }}, 400);
+                    }}, 150);
                 }} else {{
                     renderUI("");
                 }}
