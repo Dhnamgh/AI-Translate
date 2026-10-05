@@ -69,25 +69,32 @@ def translate_stable(text, src_code, tgt_code):
     if src == "zh-cn": src = "zh-CN"
     if tgt == "zh-cn": tgt = "zh-CN"
 
-    chunks = textwrap.wrap(text, width=1500, replace_whitespace=False)
+    paragraphs = text.split('\n')
     translated_text = ""
     
-    for chunk in chunks:
-        try:
-            url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src}&tl={tgt}&dt=t&q={urllib.parse.quote(chunk)}"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=10) as response:
-                data = json.loads(response.read().decode('utf-8'))
-                translated_text += "".join([item[0] for item in data[0] if item[0]]) + " "
-        except Exception:
+    for p in paragraphs:
+        if not p.strip():
+            translated_text += "\n"
+            continue
+            
+        chunks = textwrap.wrap(p, width=1000, break_long_words=False, replace_whitespace=False)
+        for chunk in chunks:
             try:
-                url2 = f"https://lingva.ml/api/v1/{src}/{tgt}/{urllib.parse.quote(chunk)}"
-                req2 = urllib.request.Request(url2, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req2, timeout=10) as response2:
-                    data2 = json.loads(response2.read().decode('utf-8'))
-                    translated_text += data2.get("translation", "") + " "
-            except Exception as e:
-                return f"Lỗi kết nối dịch thuật: {str(e)}"
+                url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src}&tl={tgt}&dt=t&q={urllib.parse.quote(chunk)}"
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    data = json.loads(response.read().decode('utf-8'))
+                    translated_text += "".join([item[0] for item in data[0] if item[0]]) + " "
+            except Exception:
+                try:
+                    url2 = f"https://lingva.ml/api/v1/{src}/{tgt}/{urllib.parse.quote(chunk)}"
+                    req2 = urllib.request.Request(url2, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req2, timeout=10) as response2:
+                        data2 = json.loads(response2.read().decode('utf-8'))
+                        translated_text += data2.get("translation", "") + " "
+                except Exception as e:
+                    translated_text += f"[Lỗi dịch thuật: {str(e)}] "
+        translated_text += "\n"
 
     return translated_text.strip()
 
@@ -260,15 +267,13 @@ with tab2:
                 line-height: 1.6;
                 word-wrap: break-word;
             }}
-            #live-translated-text {{ color: #28a745; font-weight: bold; }}
-            #live-original-text {{ color: #0056b3; font-style: italic; }}
             
             @media (max-width: 768px) {{
                 .cabin-grid {{
                     flex-direction: column;
                 }}
                 .cabin-panel {{
-                    height: 300px; 
+                    height: 350px; 
                 }}
             }}
         </style>
@@ -296,13 +301,13 @@ with tab2:
     <script>
         var recognition;
         var isRunning = false;
-        var historyOriginal = "";
-        var historyTranslated = "";
         
-        var translateQueue = [];
-        var isTranslating = false;
+        var final_orig_html = "";
+        var final_trans_html = "";
+        
+        var transQueue = [];
+        var isTranslatingFinal = false;
         var translationTimer;
-        var pauseTimer; 
 
         function scrollToBottom() {{
             let pTrans = document.getElementById('scroll-trans');
@@ -345,27 +350,27 @@ with tab2:
                 }}
             }} catch(e) {{}}
 
-            return "[Hệ thống nghẽn...]";
+            return "[Lỗi mạng]";
         }}
 
         async function processQueue() {{
-            if (isTranslating || translateQueue.length === 0) return;
-            isTranslating = true;
+            if (isTranslatingFinal || transQueue.length === 0) return;
+            isTranslatingFinal = true;
             
-            let textToTranslate = translateQueue.shift();
-            
+            let textToTranslate = transQueue.shift();
             let translated = await fetchTranslation(textToTranslate);
-            if (translated && !translated.includes("[Hệ thống")) {{
-                let cleanTrans = translated.trim();
-                cleanTrans = cleanTrans.charAt(0).toUpperCase() + cleanTrans.slice(1);
-                if (!cleanTrans.match(/[.!?]$/)) cleanTrans += ".";
+            
+            if (translated && !translated.includes("[Lỗi")) {{
+                let t_text = translated.trim();
+                t_text = t_text.charAt(0).toUpperCase() + t_text.slice(1);
+                if (!t_text.match(/[.!?]$/)) t_text += ".";
                 
-                historyTranslated += cleanTrans + " ";
-                document.getElementById('live-translated-text').innerHTML = historyTranslated;
+                final_trans_html += "<span style='color: #28a745; font-weight: bold;'>" + t_text + "</span><br><br>";
+                document.getElementById('live-translated-text').innerHTML = final_trans_html;
                 scrollToBottom();
             }}
             
-            isTranslating = false;
+            isTranslatingFinal = false;
             processQueue();
         }}
 
@@ -386,71 +391,45 @@ with tab2:
             }};
 
             recognition.onresult = function(event) {{
-                clearTimeout(pauseTimer);
-
                 let interim = '';
                 let finalStr = '';
 
                 for (let i = event.resultIndex; i < event.results.length; ++i) {{
+                    let text = event.results[i][0].transcript;
                     if (event.results[i].isFinal) {{
-                        let text = event.results[i][0].transcript.trim();
+                        text = text.trim();
                         text = text.charAt(0).toUpperCase() + text.slice(1);
                         if (!text.match(/[.!?]$/)) text += ".";
                         finalStr += text + " ";
                     }} else {{
-                        interim += event.results[i][0].transcript;
+                        interim += text;
                     }}
                 }}
 
                 let origBox = document.getElementById('live-original-text');
                 let transBox = document.getElementById('live-translated-text');
 
-                origBox.innerHTML = historyOriginal + finalStr + interim;
-                scrollToBottom(); 
-
                 if (finalStr.trim() !== "") {{
-                    clearTimeout(translationTimer);
-                    
-                    let cleanFinal = finalStr.trim();
-                    historyOriginal += cleanFinal + " ";
-                    origBox.innerHTML = historyOriginal;
-                    scrollToBottom();
-
-                    translateQueue.push(cleanFinal);
+                    final_orig_html += "<span style='color: #0056b3; font-style: italic;'>" + finalStr.trim() + "</span><br><br>";
+                    transQueue.push(finalStr.trim());
                     processQueue();
-                }} 
-                
-                if (interim.trim() !== "") {{
-                    clearTimeout(translationTimer);
-                    translationTimer = setTimeout(() => {{
-                        fetchTranslation(interim).then(translatedInterim => {{
-                            if (translatedInterim && !translatedInterim.includes("[Hệ thống")) {{
-                                transBox.innerHTML = historyTranslated + translatedInterim;
-                                scrollToBottom();
-                            }}
-                        }});
-                    }}, 400); 
                 }}
 
-                pauseTimer = setTimeout(() => {{
-                    let hasNewlineAdded = false;
+                origBox.innerHTML = final_orig_html + "<span style='color: #888888; font-style: italic;'>" + interim + "</span>";
+                scrollToBottom();
 
-                    if (historyOriginal.trim() !== "" && !historyOriginal.endsWith("<br><br>")) {{
-                        historyOriginal = historyOriginal.trimEnd() + "<br><br>";
-                        origBox.innerHTML = historyOriginal;
-                        hasNewlineAdded = true;
-                    }}
-
-                    if (historyTranslated.trim() !== "" && !historyTranslated.endsWith("<br><br>")) {{
-                        historyTranslated = historyTranslated.trimEnd() + "<br><br>";
-                        transBox.innerHTML = historyTranslated;
-                        hasNewlineAdded = true;
-                    }}
-
-                    if (hasNewlineAdded) {{
-                        scrollToBottom();
-                    }}
-                }}, 1200); 
+                if (interim.trim() !== "") {{
+                    clearTimeout(translationTimer);
+                    translationTimer = setTimeout(async () => {{
+                        let translatedInterim = await fetchTranslation(interim);
+                        if (translatedInterim && !translatedInterim.includes("[Lỗi")) {{
+                            transBox.innerHTML = final_trans_html + "<span style='color: #888888; font-weight: bold;'>" + translatedInterim + "</span>";
+                            scrollToBottom();
+                        }}
+                    }}, 600); 
+                }} else {{
+                    transBox.innerHTML = final_trans_html;
+                }}
             }};
 
             recognition.onend = function() {{
@@ -467,10 +446,10 @@ with tab2:
         function startCabin() {{
             if (recognition) {{
                 isRunning = true;
-                historyOriginal = "";
-                historyTranslated = "";
-                translateQueue = [];
-                isTranslating = false;
+                final_orig_html = "";
+                final_trans_html = "";
+                transQueue = [];
+                isTranslatingFinal = false;
                 try {{ recognition.start(); }} catch (e) {{}}
             }}
         }}
