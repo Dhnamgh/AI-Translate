@@ -5,13 +5,37 @@ import urllib.parse
 import urllib.request
 import streamlit as st
 import streamlit.components.v1 as components
-from deep_translator import MyMemoryTranslator
+from deep_translator import GoogleTranslator
 import edge_tts
 
-# ------------------------------------------------------------------------------
-# CẤU HÌNH GIAO DIỆN & DANH SÁCH NGÔN NGỮ
-# ------------------------------------------------------------------------------
 st.set_page_config(page_title="AI Translate Cabin Pro", layout="wide")
+
+st.markdown("""
+<style>
+    h1, h2, h3, h4, h5, h6, 
+    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4, .stMarkdown h5, .stMarkdown h6 {
+        font-family: 'Times New Roman', Times, serif !important;
+        font-size: 13px !important;
+    }
+    
+    .stTabs button[data-baseweb="tab"] p {
+        font-family: 'Times New Roman', Times, serif !important;
+        font-size: 13px !important;
+        font-weight: bold !important;
+    }
+    
+    .stSelectbox label p, .stTextArea label p, .stSlider label p {
+        font-family: 'Times New Roman', Times, serif !important;
+        font-size: 13px !important;
+        font-weight: bold !important;
+    }
+    
+    .stButton button p {
+        font-family: 'Times New Roman', Times, serif !important;
+        font-size: 13px !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 LANG_OPTIONS = {
     "🇻🇳 Tiếng Việt": "vi",
@@ -35,9 +59,6 @@ VOICE_MAP = {
     "vn Nữ - Tiếng Việt (Hoài My)": "vi-VN-HoaiMyNeural"
 }
 
-# ------------------------------------------------------------------------------
-# HÀM DỊCH THUẬT AN TOÀN (MYMEMORY) - TAB 1 GIỮ NGUYÊN
-# ------------------------------------------------------------------------------
 @st.cache_data(show_spinner=False, ttl=3600)
 def translate_stable(text, src_code, tgt_code):
     if not text.strip():
@@ -49,24 +70,27 @@ def translate_stable(text, src_code, tgt_code):
     if tgt == "zh-cn": tgt = "zh-CN"
 
     try:
-        translator = MyMemoryTranslator(source=src, target=tgt)
-        res = translator.translate(text)
-        if res and res.strip():
-            return res
-    except Exception:
-        pass
-
-    try:
-        url = f"https://api.mymemory.translated.net/get?q={urllib.parse.quote(text)}&langpair={src}|{tgt}"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=5) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            if 'responseData' in data and data['responseData']['translatedText']:
-                return data['responseData']['translatedText']
+        translator = GoogleTranslator(source=src, target=tgt)
+        max_len = 4000 
+        if len(text) <= max_len:
+            return translator.translate(text)
+        else:
+            paragraphs = text.split('\n')
+            result = ""
+            for p in paragraphs:
+                if p.strip():
+                    if len(p) > max_len:
+                        chunks = [p[i:i+max_len] for i in range(0, len(p), max_len)]
+                        for chunk in chunks:
+                            result += translator.translate(chunk) + " "
+                        result += "\n"
+                    else:
+                        result += translator.translate(p) + "\n"
+                else:
+                    result += "\n"
+            return result.strip()
     except Exception as e:
         return f"Không thể kết nối dịch thuật: {str(e)}"
-
-    return "Không thể dịch được văn bản lúc này. Vui lòng thử lại."
 
 async def generate_tts_async(text, voice_key, speed_rate, output_filename):
     voice_name = VOICE_MAP.get(voice_key, "en-US-GuyNeural")
@@ -97,14 +121,11 @@ if not st.session_state["authenticated"]:
 
 tab1, tab2 = st.tabs([
     "💬 Dịch văn bản & Hội thoại", 
-    "🎙️ Cabin Phiên dịch Trực tiếp"
+    "🎙 Cabin Phiên dịch Trực tiếp"
 ])
 
-# ==============================================================================
-# TAB 1: DỊCH VĂN BẢN & HỘI THOẠI (GIỮ NGUYÊN)
-# ==============================================================================
 with tab1:
-    st.subheader("💬 Dịch văn bản & Hội thoại chuyên sâu")
+    st.subheader("Dịch văn bản & Hội thoại chuyên sâu")
     
     col_t1_src, col_t1_tgt = st.columns(2)
     with col_t1_src:
@@ -112,7 +133,7 @@ with tab1:
     with col_t1_tgt:
         tgt_lang_name_t1 = st.selectbox("Ngôn ngữ đích:", list(LANG_OPTIONS.keys()), index=1, key="t1_tgt")
 
-    input_text = st.text_area("Nhập văn bản cần dịch:", height=130, placeholder="Dán văn bản cần dịch vào đây...", key="t1_input_text")
+    input_text = st.text_area("Nhập văn bản cần dịch:", height=150, placeholder="Dán văn bản cần dịch vào đây (Hỗ trợ văn bản siêu dài)...", key="t1_input_text")
     
     col_btn1, _ = st.columns([1, 5])
     with col_btn1:
@@ -133,7 +154,7 @@ with tab1:
         st.success(st.session_state["last_translation"])
 
         st.markdown("---")
-        st.markdown("##### 🔊 Cài đặt Âm thanh & Tải về:")
+        st.markdown("### Cài đặt Âm thanh & Tải về:")
         
         col_v_sel, col_r_sel = st.columns(2)
         with col_v_sel:
@@ -159,12 +180,9 @@ with tab1:
             except Exception:
                 pass
 
-# ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (FIX TỰ ĐỘNG CHẤM CÂU VÀ XUỐNG DÒNG CHUẨN XÁC)
-# ==============================================================================
 with tab2:
-    st.subheader("🎙 Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    st.markdown("Hệ thống nhận diện giọng nói tự động chấm câu và ngắt đoạn khi kết thúc một ý.")
+    st.subheader("Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
+    st.markdown("Hệ thống tự động nhận diện điểm dừng, ngắt đoạn nhạy hơn khi người nói ngừng 1 giây.")
 
     col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
     with col_t2_src:
@@ -193,8 +211,9 @@ with tab2:
                 text-align: center;
             }}
             .btn-control {{
+                font-family: 'Times New Roman', Times, serif !important;
                 padding: 12px 28px;
-                font-size: 16px;
+                font-size: 13px !important;
                 font-weight: bold;
                 border-radius: 8px;
                 border: none;
@@ -206,13 +225,15 @@ with tab2:
             .btn-start {{ background-color: #28a745; }}
             .btn-stop {{ background-color: #dc3545; }}
             #status-badge {{
+                font-family: 'Times New Roman', Times, serif !important;
                 margin-top: 15px;
                 font-weight: bold;
-                font-size: 15px;
+                font-size: 13px !important;
                 color: #28a745;
             }}
             .cabin-grid {{
                 display: flex;
+                flex-direction: row;
                 gap: 15px;
                 margin-top: 15px;
             }}
@@ -227,8 +248,9 @@ with tab2:
                 overflow-y: auto; 
             }}
             .panel-title {{
+                font-family: 'Times New Roman', Times, serif !important;
                 font-weight: bold;
-                font-size: 15px;
+                font-size: 13px !important;
                 margin-bottom: 12px;
                 border-bottom: 1px solid #e9ecef;
                 padding-bottom: 8px;
@@ -237,28 +259,37 @@ with tab2:
                 font-size: 17px;
                 line-height: 1.6;
                 word-wrap: break-word;
-                white-space: pre-wrap; /* Quan trọng để hiển thị dấu \\n */
+                white-space: pre-wrap; 
             }}
             #live-translated-text {{ color: #28a745; font-weight: bold; }}
             #live-original-text {{ color: #0056b3; font-style: italic; }}
+            
+            @media (max-width: 768px) {{
+                .cabin-grid {{
+                    flex-direction: column;
+                }}
+                .cabin-panel {{
+                    height: 350px;
+                }}
+            }}
         </style>
     </head>
     <body>
     <div class="cabin-box">
         <div>
-            <button id="start-btn" class="btn-control btn-start" onclick="startCabin()">🔴 KÍCH HOẠT CABIN TRỰC TIẾP</button>
-            <button id="stop-btn" class="btn-control btn-stop" onclick="stopCabin()" disabled>⏹️ DỪNG CABIN</button>
+            <button id="start-btn" class="btn-control btn-start" onclick="startCabin()">KÍCH HOẠT CABIN TRỰC TIẾP</button>
+            <button id="stop-btn" class="btn-control btn-stop" onclick="stopCabin()" disabled>DỪNG CABIN</button>
         </div>
         <div id="status-badge">Trạng thái: Sẵn sàng kết nối Microphone...</div>
         
         <div class="cabin-grid">
             <div class="cabin-panel" id="scroll-trans">
-                <div class="panel-title">🌐 Bản dịch Cabin ({tgt_lang_name_t2})</div>
-                <div id="live-translated-text" class="panel-content">[Đang chờ bản dịch...]</div>
+                <div class="panel-title">Bản dịch Cabin ({tgt_lang_name_t2})</div>
+                <div id="live-translated-text" class="panel-content"></div>
             </div>
             <div class="cabin-panel" id="scroll-orig">
-                <div class="panel-title">🎙️ Phát biểu Gốc ({src_lang_name_t2})</div>
-                <div id="live-original-text" class="panel-content">[Chưa có giọng nói...]</div>
+                <div class="panel-title">Phát biểu Gốc ({src_lang_name_t2})</div>
+                <div id="live-original-text" class="panel-content"></div>
             </div>
         </div>
     </div>
@@ -269,6 +300,7 @@ with tab2:
         var historyOriginal = "";
         var historyTranslated = "";
         var translationTimer;
+        var pauseTimer; 
 
         function scrollToBottom() {{
             let pTrans = document.getElementById('scroll-trans');
@@ -315,7 +347,7 @@ with tab2:
         }}
 
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {{
-            document.getElementById('status-badge').innerText = '❌ Trình duyệt không hỗ trợ Web Speech API. Hãy dùng Google Chrome hoặc Microsoft Edge!';
+            document.getElementById('status-badge').innerText = 'Trình duyệt không hỗ trợ Web Speech API. Hãy dùng Google Chrome hoặc Microsoft Edge!';
         }} else {{
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             recognition = new SpeechRecognition();
@@ -325,22 +357,21 @@ with tab2:
 
             recognition.onstart = function() {{
                 isRunning = true;
-                document.getElementById('status-badge').innerText = '🟢 Cabin đang mở mic liên tục (Tự động chấm câu & chia đoạn)...';
+                document.getElementById('status-badge').innerText = 'Trạng thái: Cabin đang mở mic liên tục...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
 
             recognition.onresult = function(event) {{
+                clearTimeout(pauseTimer);
+
                 let interim = '';
                 let finalStr = '';
 
                 for (let i = event.resultIndex; i < event.results.length; ++i) {{
                     if (event.results[i].isFinal) {{
-                        // Bắt sự kiện chốt câu của Google. Cắt khoảng trắng dư thừa
                         let text = event.results[i][0].transcript.trim();
-                        // Tự động viết hoa chữ cái đầu cho đẹp
                         text = text.charAt(0).toUpperCase() + text.slice(1);
-                        // Tự động thêm dấu chấm nếu chưa có
                         if (!text.match(/[.!?]$/)) text += ".";
                         finalStr += text + " ";
                     }} else {{
@@ -351,7 +382,6 @@ with tab2:
                 let origBox = document.getElementById('live-original-text');
                 let transBox = document.getElementById('live-translated-text');
 
-                // Hiển thị dải chữ đang nói đuổi theo ngay lập tức
                 origBox.innerText = historyOriginal + finalStr + interim;
                 scrollToBottom(); 
 
@@ -359,19 +389,16 @@ with tab2:
                     clearTimeout(translationTimer);
                     
                     let cleanFinal = finalStr.trim();
-                    // Ép xuống dòng ngay lập tức bằng 2 ký tự newline sau khi kết thúc 1 câu
                     historyOriginal += cleanFinal + "\\n\\n";
                     origBox.innerText = historyOriginal;
                     scrollToBottom();
 
-                    // Dịch đoạn vừa chốt
                     fetchTranslation(cleanFinal).then(translated => {{
                         if (translated && !translated.includes("[Hệ thống")) {{
                             let cleanTrans = translated.trim();
                             cleanTrans = cleanTrans.charAt(0).toUpperCase() + cleanTrans.slice(1);
                             if (!cleanTrans.match(/[.!?]$/)) cleanTrans += ".";
                             
-                            // Ép xuống dòng cho bản dịch để song song với bản gốc
                             historyTranslated += cleanTrans + "\\n\\n";
                         }}
                         transBox.innerText = historyTranslated;
@@ -390,13 +417,33 @@ with tab2:
                         }});
                     }}, 400); 
                 }}
+
+                pauseTimer = setTimeout(() => {{
+                    let hasNewlineAdded = false;
+
+                    if (historyOriginal.trim() !== "" && !historyOriginal.endsWith("\\n\\n")) {{
+                        historyOriginal = historyOriginal.trimEnd() + "\\n\\n";
+                        document.getElementById('live-original-text').innerText = historyOriginal;
+                        hasNewlineAdded = true;
+                    }}
+
+                    if (historyTranslated.trim() !== "" && !historyTranslated.endsWith("\\n\\n")) {{
+                        historyTranslated = historyTranslated.trimEnd() + "\\n\\n";
+                        document.getElementById('live-translated-text').innerText = historyTranslated;
+                        hasNewlineAdded = true;
+                    }}
+
+                    if (hasNewlineAdded) {{
+                        scrollToBottom();
+                    }}
+                }}, 1000); 
             }};
 
             recognition.onend = function() {{
                 if (isRunning) {{
                     try {{ recognition.start(); }} catch (e) {{}}
                 }} else {{
-                    document.getElementById('status-badge').innerText = '⏹ Đã dừng hệ thống cabin.';
+                    document.getElementById('status-badge').innerText = 'Trạng thái: Đã dừng hệ thống cabin.';
                     document.getElementById('start-btn').disabled = false;
                     document.getElementById('stop-btn').disabled = true;
                 }}
@@ -421,4 +468,4 @@ with tab2:
     </html>
     """
 
-    components.html(cabin_html_code, height=650)
+    components.html(cabin_html_code, height=850)
