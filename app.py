@@ -182,7 +182,7 @@ with tab1:
 
 with tab2:
     st.subheader("Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    st.markdown("Hệ thống tự động nhận diện điểm dừng, ngắt đoạn nhạy hơn khi người nói ngừng 1 giây.")
+    # st.markdown("Hệ thống tự động nhận diện điểm dừng, ngắt đoạn nhạy hơn khi người nói ngừng 1 giây.")
 
     col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
     with col_t2_src:
