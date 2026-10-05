@@ -5,7 +5,6 @@ import urllib.parse
 import urllib.request
 import streamlit as st
 import streamlit.components.v1 as components
-from deep_translator import GoogleTranslator
 import edge_tts
 
 st.set_page_config(page_title="AI Translate Cabin Pro", layout="wide")
@@ -70,27 +69,20 @@ def translate_stable(text, src_code, tgt_code):
     if tgt == "zh-cn": tgt = "zh-CN"
 
     try:
-        translator = GoogleTranslator(source=src, target=tgt)
-        max_len = 4000 
-        if len(text) <= max_len:
-            return translator.translate(text)
-        else:
-            paragraphs = text.split('\n')
-            result = ""
-            for p in paragraphs:
-                if p.strip():
-                    if len(p) > max_len:
-                        chunks = [p[i:i+max_len] for i in range(0, len(p), max_len)]
-                        for chunk in chunks:
-                            result += translator.translate(chunk) + " "
-                        result += "\n"
-                    else:
-                        result += translator.translate(p) + "\n"
-                else:
-                    result += "\n"
-            return result.strip()
-    except Exception as e:
-        return f"Không thể kết nối dịch thuật: {str(e)}"
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src}&tl={tgt}&dt=t&q={urllib.parse.quote(text)}"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            return "".join([item[0] for item in data[0] if item[0]])
+    except Exception:
+        try:
+            url2 = f"https://lingva.ml/api/v1/{src}/{tgt}/{urllib.parse.quote(text)}"
+            req2 = urllib.request.Request(url2, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req2, timeout=10) as response2:
+                data2 = json.loads(response2.read().decode('utf-8'))
+                return data2.get("translation", "Lỗi dịch thuật.")
+        except Exception as e2:
+            return f"Không thể kết nối dịch thuật: {str(e2)}"
 
 async def generate_tts_async(text, voice_key, speed_rate, output_filename):
     voice_name = VOICE_MAP.get(voice_key, "en-US-GuyNeural")
@@ -133,7 +125,7 @@ with tab1:
     with col_t1_tgt:
         tgt_lang_name_t1 = st.selectbox("Ngôn ngữ đích:", list(LANG_OPTIONS.keys()), index=1, key="t1_tgt")
 
-    input_text = st.text_area("Nhập văn bản cần dịch:", height=150, placeholder="Dán văn bản cần dịch vào đây (Hỗ trợ văn bản siêu dài)...", key="t1_input_text")
+    input_text = st.text_area("Nhập văn bản cần dịch:", height=150, placeholder="Dán văn bản cần dịch vào đây...", key="t1_input_text")
     
     col_btn1, _ = st.columns([1, 5])
     with col_btn1:
@@ -182,7 +174,6 @@ with tab1:
 
 with tab2:
     st.subheader("Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
-    # st.markdown("Hệ thống tự động nhận diện điểm dừng, ngắt đoạn nhạy hơn khi người nói ngừng 1 giây.")
 
     col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
     with col_t2_src:
@@ -201,18 +192,19 @@ with tab2:
     <html>
     <head>
         <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         <style>
             .cabin-box {{
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
                 background: #f8f9fa;
                 border: 1px solid #dee2e6;
                 border-radius: 12px;
-                padding: 20px;
+                padding: 15px;
                 text-align: center;
             }}
             .btn-control {{
                 font-family: 'Times New Roman', Times, serif !important;
-                padding: 12px 28px;
+                padding: 12px 24px;
                 font-size: 13px !important;
                 font-weight: bold;
                 border-radius: 8px;
@@ -226,7 +218,7 @@ with tab2:
             .btn-stop {{ background-color: #dc3545; }}
             #status-badge {{
                 font-family: 'Times New Roman', Times, serif !important;
-                margin-top: 15px;
+                margin-top: 10px;
                 font-weight: bold;
                 font-size: 13px !important;
                 color: #28a745;
@@ -242,7 +234,7 @@ with tab2:
                 background: #ffffff;
                 border: 1px solid #ced4da;
                 border-radius: 8px;
-                padding: 20px;
+                padding: 15px;
                 text-align: left;
                 height: 480px; 
                 overflow-y: auto; 
@@ -251,12 +243,12 @@ with tab2:
                 font-family: 'Times New Roman', Times, serif !important;
                 font-weight: bold;
                 font-size: 13px !important;
-                margin-bottom: 12px;
+                margin-bottom: 10px;
                 border-bottom: 1px solid #e9ecef;
-                padding-bottom: 8px;
+                padding-bottom: 5px;
             }}
             .panel-content {{
-                font-size: 17px;
+                font-size: 16px;
                 line-height: 1.6;
                 word-wrap: break-word;
                 white-space: pre-wrap; 
@@ -269,7 +261,7 @@ with tab2:
                     flex-direction: column;
                 }}
                 .cabin-panel {{
-                    height: 350px;
+                    height: 250px; 
                 }}
             }}
         </style>
@@ -347,7 +339,7 @@ with tab2:
         }}
 
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {{
-            document.getElementById('status-badge').innerText = 'Trình duyệt không hỗ trợ Web Speech API. Hãy dùng Google Chrome hoặc Microsoft Edge!';
+            document.getElementById('status-badge').innerText = 'Trình duyệt không hỗ trợ Web Speech API. Hãy dùng Google Chrome hoặc Safari!';
         }} else {{
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             recognition = new SpeechRecognition();
@@ -389,7 +381,7 @@ with tab2:
                     clearTimeout(translationTimer);
                     
                     let cleanFinal = finalStr.trim();
-                    historyOriginal += cleanFinal + "\\n\\n";
+                    historyOriginal += cleanFinal + " ";
                     origBox.innerText = historyOriginal;
                     scrollToBottom();
 
@@ -399,7 +391,7 @@ with tab2:
                             cleanTrans = cleanTrans.charAt(0).toUpperCase() + cleanTrans.slice(1);
                             if (!cleanTrans.match(/[.!?]$/)) cleanTrans += ".";
                             
-                            historyTranslated += cleanTrans + "\\n\\n";
+                            historyTranslated += cleanTrans + " ";
                         }}
                         transBox.innerText = historyTranslated;
                         scrollToBottom();
@@ -468,4 +460,4 @@ with tab2:
     </html>
     """
 
-    components.html(cabin_html_code, height=850)
+    components.html(cabin_html_code, height=650)
