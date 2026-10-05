@@ -6,7 +6,7 @@ import urllib.request
 import textwrap
 import streamlit as st
 import streamlit.components.v1 as components
-from deep_translator import GoogleTranslator
+from deep_translator import GoogleTranslator, MyMemoryTranslator
 import edge_tts
 
 st.set_page_config(page_title="AI Translate Cabin Pro", layout="wide")
@@ -60,7 +60,9 @@ VOICE_MAP = {
     "vn Nữ - Tiếng Việt (Hoài My)": "vi-VN-HoaiMyNeural"
 }
 
-# --- TAB 1 CORE (ĐÃ KHÓA CỨNG, BẢO ĐẢM TỐC ĐỘ VÀ SỰ CHÍNH XÁC) ---
+# ==============================================================================
+# TAB 1: PHIÊN BẢN CHUẨN XÁC VÀ BẤT TỬ (KHÔI PHỤC THEO YÊU CẦU CỦA ANH)
+# ==============================================================================
 @st.cache_data(show_spinner=False, ttl=3600)
 def translate_stable(text, src_code, tgt_code):
     if not text.strip():
@@ -72,31 +74,48 @@ def translate_stable(text, src_code, tgt_code):
     paragraphs = text.split('\n')
     final_translated = []
     
-    translator = GoogleTranslator(source=src, target=tgt)
-    
     for p in paragraphs:
         if not p.strip():
             final_translated.append("")
             continue
             
-        chunks = textwrap.wrap(p, width=2000, replace_whitespace=False)
+        chunks = textwrap.wrap(p, width=1500, replace_whitespace=False)
         p_trans = ""
+        
         for chunk in chunks:
-            try:
-                res = translator.translate(chunk)
-                if res: 
-                    p_trans += res + " "
-            except Exception:
+            success = False
+            
+            # Lớp 1: GoogleTranslator chính hãng
+            if not success:
                 try:
-                    url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src}&tl={tgt}&dt=t&q={urllib.parse.quote(chunk)}"
+                    p_trans += GoogleTranslator(source=src, target=tgt).translate(chunk) + " "
+                    success = True
+                except:
+                    pass
+            
+            # Lớp 2: Lingva API dự phòng
+            if not success:
+                try:
+                    url = f"https://lingva.ml/api/v1/{src}/{tgt}/{urllib.parse.quote(chunk)}"
                     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
                     with urllib.request.urlopen(req, timeout=10) as response:
                         data = json.loads(response.read().decode('utf-8'))
-                        p_trans += "".join([item[0] for item in data[0] if item[0]]) + " "
+                        p_trans += data.get("translation", "") + " "
+                        success = True
                 except:
-                    p_trans += "[Lỗi kết nối máy chủ Google, vui lòng thử lại] "
-            time.sleep(0.2) 
+                    pass
             
+            # Lớp 3: MyMemoryTranslator
+            if not success:
+                try:
+                    p_trans += MyMemoryTranslator(source=src, target=tgt).translate(chunk) + " "
+                    success = True
+                except:
+                    p_trans += "[Hệ thống quá tải, vui lòng thử lại sau vài giây] "
+            
+            # Nghỉ 0.5 giây giữa các đoạn cắt nhỏ để không bị Google khóa IP (Tránh lỗi 429)
+            time.sleep(0.5)
+
         final_translated.append(p_trans.strip())
 
     return "\n".join(final_translated)
@@ -189,7 +208,9 @@ with tab1:
             except Exception:
                 pass
 
-# --- TAB 2 CORE (ÉP XUNG TỐC ĐỘ, RÚT NGẮN ĐỘ TRỄ) ---
+# ==============================================================================
+# TAB 2: TỐC ĐỘ SIÊU CAO BẰNG CƠ CHẾ ĐUA API (TRIỆT TIÊU ĐỘ TRỄ 5 GIÂY)
+# ==============================================================================
 with tab2:
     st.subheader("Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
 
@@ -318,6 +339,7 @@ with tab2:
             if(pOrig) pOrig.scrollTop = pOrig.scrollHeight;
         }}
 
+        // Kỹ thuật "Đua API" - Cổng nào trả kết quả nhanh nhất sẽ được lấy luôn, triệt tiêu độ trễ
         async function fetchTranslation(text) {{
             if (!text || text.trim() === "") return "";
             let chunk = text.length > 800 ? text.substring(text.length - 800) : text;
@@ -325,32 +347,26 @@ with tab2:
             let src = '{src_code_val}';
             let tgt = '{tgt_code_val}';
 
-            // Thiết lập Timeout 1.5 giây để nếu mạng hơi chậm nó sẽ hủy luôn, không gây nghẽn hàng đợi
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 1500);
+            // Nếu quá 2.5 giây không server nào phản hồi thì hủy lệnh
+            const timeoutId = setTimeout(() => controller.abort(), 2500);
 
             try {{
-                // Ưu tiên cực độ endpoint clients5 của Chrome (Phản hồi thường < 0.2s)
-                let res = await fetch(`https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${{src}}&tl=${{tgt}}&q=${{q}}`, {{signal: controller.signal}});
+                let p1 = fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${{src}}&tl=${{tgt}}&dt=t&q=${{q}}`, {{signal: controller.signal}})
+                    .then(res => res.ok ? res.json() : Promise.reject())
+                    .then(data => data[0].map(item => item[0]).join(""));
+
+                let p2 = fetch(`https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${{src}}&tl=${{tgt}}&q=${{q}}`, {{signal: controller.signal}})
+                    .then(res => res.ok ? res.json() : Promise.reject())
+                    .then(data => Array.isArray(data) ? data.join(" ") : data);
+
+                // Lấy kết quả siêu tốc ngay khi 1 trong 2 luồng hoàn tất
+                let translated = await Promise.any([p1, p2]);
                 clearTimeout(timeoutId);
-                
-                if (res.ok) {{
-                    let data = await res.json();
-                    return Array.isArray(data) ? data.join(" ") : data;
-                }}
+                return translated;
             }} catch (e) {{
-                // Nếu clients5 lỗi hoặc timeout, tự động chuyển ngay sang gtx
+                return "[⚡ Lỗi dịch...]";
             }}
-
-            try {{
-                let res2 = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${{src}}&tl=${{tgt}}&dt=t&q=${{q}}`);
-                if (res2.ok) {{
-                    let data2 = await res2.json();
-                    return data2[0].map(item => item[0]).join("");
-                }}
-            }} catch(e) {{}}
-
-            return "[⚡...]";
         }}
 
         function renderUI(interimText = "", interimTransText = "") {{
@@ -424,7 +440,7 @@ with tab2:
                     
                     let currentIndex = origSegments.length;
                     origSegments.push(cleanOrig);
-                    transSegments.push("[⚡...]");
+                    transSegments.push("[⚡ Đang dịch...]");
                     
                     renderUI(""); 
 
@@ -445,7 +461,7 @@ with tab2:
                     renderUI(interim.trim());
                     
                     clearTimeout(interimTimer);
-                    // Rút ngắn độ trễ từ 400ms xuống chỉ còn 150ms để bắt chữ gần như tức thì
+                    // Rút ngắn trễ nháp xuống siêu tốc 150ms
                     interimTimer = setTimeout(async () => {{
                         let t_interim = await fetchTranslation(interim);
                         if (t_interim && !t_interim.includes("[⚡")) {{
