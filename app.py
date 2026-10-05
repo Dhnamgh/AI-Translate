@@ -37,7 +37,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Đã bỏ các icon emoji để đồng bộ chuẩn xác với hình ảnh giao diện của anh
 LANG_OPTIONS = {
     "VN Tiếng Việt": "vi",
     "us Tiếng Anh (Mỹ)": "en",
@@ -91,7 +90,9 @@ def translate_stable(text, src_code, tgt_code):
             try:
                 p_trans += call_google_gtx(chunk) + " "
             except Exception as e:
-                p_trans += f"[Lỗi: Không thể kết nối máy chủ Google - {str(e)}] "
+                p_trans += f"[Lỗi mạng, hãy thử lại] "
+            time.sleep(0.3)
+            
         final_translated.append(p_trans.strip())
 
     return "\n".join(final_translated)
@@ -300,16 +301,12 @@ with tab2:
         var recognition;
         var isRunning = false;
         
-        // Quản lý riêng rẽ phiên lịch sử và phiên nháp để tránh lặp từ trên điện thoại
-        var sessionOrigHistory = "";
-        var sessionTransHistory = "";
-        var origSegments = [];
-        var transSegments = [];
-        var finalProcessed = [];
+        var historyOriginal = "";
+        var historyTranslated = "";
         
-        var transQueue = [];
-        var isTranslatingFinal = false;
+        var currentSessionText = "";
         var translationTimer;
+        var pauseTimer; 
 
         function scrollToBottom() {{
             let pTrans = document.getElementById('scroll-trans');
@@ -342,65 +339,17 @@ with tab2:
                 }}
             }} catch(e) {{}}
 
+            try {{
+                let gtxUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${{src}}&tl=${{tgt}}&dt=t&q=${{q}}`;
+                let res3 = await fetch(`https://api.allorigins.win/get?url=${{encodeURIComponent(gtxUrl)}}`);
+                if (res3.ok) {{
+                    let data3 = await res3.json();
+                    let actualData = JSON.parse(data3.contents);
+                    return actualData[0].map(item => item[0]).join("");
+                }}
+            }} catch(e) {{}}
+
             return "[Lỗi mạng - Thử lại sau...]";
-        }}
-
-        async function processQueue() {{
-            if (isTranslatingFinal || transQueue.length === 0) return;
-            isTranslatingFinal = true;
-            
-            let item = transQueue.shift();
-            let translated = await fetchTranslation(item.text);
-            
-            if (translated && !translated.includes("[Lỗi")) {{
-                transSegments[item.index] = translated.trim();
-                renderUI();
-            }} else {{
-                transSegments[item.index] = "[Lỗi mạng]";
-                renderUI();
-            }}
-            
-            isTranslatingFinal = false;
-            processQueue();
-        }}
-
-        function renderUI(interimText = "") {{
-            let origHTML = sessionOrigHistory;
-            let transHTML = sessionTransHistory;
-
-            // Render lại chính xác từng đoạn, xuống dòng rành mạch bằng <br><br>
-            for (let i = 0; i < origSegments.length; i++) {{
-                if (origSegments[i]) {{
-                    origHTML += "<span style='color: #0056b3; font-weight: 500; display: block; margin-bottom: 12px;'>" + origSegments[i] + "</span>";
-                }}
-                if (transSegments[i]) {{
-                    let color = transSegments[i].includes("[⚡") ? "#888888" : "#28a745";
-                    let weight = transSegments[i].includes("[⚡") ? "normal" : "bold";
-                    transHTML += "<span style='color: " + color + "; font-weight: " + weight + "; display: block; margin-bottom: 12px;'>" + transSegments[i] + "</span>";
-                }}
-            }}
-
-            let origBox = document.getElementById('live-original-text');
-            let transBox = document.getElementById('live-translated-text');
-
-            if (interimText.trim() !== "") {{
-                origBox.innerHTML = origHTML + "<span style='color: #888888; font-style: italic;'>" + interimText + "</span>";
-                
-                // Gọi API dịch cho text nháp (debounced)
-                clearTimeout(translationTimer);
-                translationTimer = setTimeout(async () => {{
-                    let t_interim = await fetchTranslation(interimText);
-                    if (t_interim && !t_interim.includes("[Lỗi")) {{
-                        transBox.innerHTML = transHTML + "<span style='color: #888888; font-style: italic;'>" + t_interim + "</span>";
-                        scrollToBottom();
-                    }}
-                }}, 600);
-            }} else {{
-                origBox.innerHTML = origHTML;
-                transBox.innerHTML = transHTML;
-            }}
-            
-            scrollToBottom();
         }}
 
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {{
@@ -420,59 +369,71 @@ with tab2:
             }};
 
             recognition.onresult = function(event) {{
-                let interimText = "";
+                clearTimeout(pauseTimer);
+                clearTimeout(translationTimer);
 
-                // Cách này khóa chặt hoàn toàn lỗi lặp câu trên điện thoại Android/Chrome
+                // Gom toàn bộ mảng kết quả thành 1 chuỗi duy nhất để tránh lặp từ trên Mobile
+                let sessionText = "";
                 for (let i = 0; i < event.results.length; ++i) {{
-                    let text = event.results[i][0].transcript.trim();
-                    
-                    if (event.results[i].isFinal) {{
-                        if (!finalProcessed[i]) {{
-                            finalProcessed[i] = true; // Khóa mốc này vĩnh viễn
-                            
-                            if (text !== "") {{
-                                text = text.charAt(0).toUpperCase() + text.slice(1);
-                                if (!text.match(/[.!?]$/)) text += ".";
-                                
-                                origSegments[i] = text;
-                                transSegments[i] = "[⚡...]";
-                                
-                                transQueue.push({{index: i, text: text}});
-                                processQueue();
-                            }} else {{
-                                origSegments[i] = "";
-                                transSegments[i] = "";
-                            }}
+                    sessionText += event.results[i][0].transcript;
+                }}
+                
+                currentSessionText = sessionText.trim();
+                let origBox = document.getElementById('live-original-text');
+                let transBox = document.getElementById('live-translated-text');
+
+                // Hiển thị dải nháp liền mạch
+                if (currentSessionText !== "") {{
+                    origBox.innerHTML = historyOriginal + "<span style='color: #0056b3; font-style: italic;'>" + currentSessionText + "</span>";
+                    transBox.innerHTML = historyTranslated + "<span style='color: #888888; font-style: italic;'>[⚡...]</span>";
+                    scrollToBottom();
+
+                    translationTimer = setTimeout(async () => {{
+                        let tempTrans = await fetchTranslation(currentSessionText);
+                        if (tempTrans && !tempTrans.includes("[Lỗi")) {{
+                            transBox.innerHTML = historyTranslated + "<span style='color: #888888; font-weight: bold;'>" + tempTrans + "</span>";
+                            scrollToBottom();
                         }}
-                    }} else {{
-                        interimText += text + " ";
-                    }}
+                    }}, 600);
                 }}
 
-                renderUI(interimText.trim());
+                // Khi im lặng 1.2s -> Chốt câu -> Ép xuống dòng -> XÓA CACHE ĐIỆN THOẠI
+                pauseTimer = setTimeout(async () => {{
+                    if (currentSessionText !== "") {{
+                        
+                        let cleanOrig = currentSessionText;
+                        cleanOrig = cleanOrig.charAt(0).toUpperCase() + cleanOrig.slice(1);
+                        if (!cleanOrig.match(/[.!?]$/)) cleanOrig += ".";
+                        
+                        historyOriginal += "<span style='color: #0056b3; font-weight: normal; display: block; margin-bottom: 12px;'>" + cleanOrig + "</span>";
+                        origBox.innerHTML = historyOriginal;
+                        
+                        transBox.innerHTML = historyTranslated + "<span style='color: #28a745; font-style: italic;'>[⚡ Đang chốt câu...]</span>";
+                        let finalTrans = await fetchTranslation(currentSessionText);
+                        
+                        if (finalTrans && !finalTrans.includes("[Lỗi")) {{
+                            let cleanTrans = finalTrans.trim();
+                            cleanTrans = cleanTrans.charAt(0).toUpperCase() + cleanTrans.slice(1);
+                            if (!cleanTrans.match(/[.!?]$/)) cleanTrans += ".";
+                            historyTranslated += "<span style='color: #28a745; font-weight: bold; display: block; margin-bottom: 12px;'>" + cleanTrans + "</span>";
+                        }} else {{
+                            historyTranslated += "<span style='color: #dc3545; font-weight: bold; display: block; margin-bottom: 12px;'>[Lỗi mạng]</span>";
+                        }}
+                        
+                        transBox.innerHTML = historyTranslated;
+                        scrollToBottom();
+                        
+                        currentSessionText = "";
+                        
+                        // Khởi động lại engine để xóa sạch bộ nhớ tạm, triệt tiêu lỗi lặp chữ trên điện thoại
+                        try {{ recognition.stop(); }} catch(e) {{}}
+                    }}
+                }}, 1200); 
             }};
 
             recognition.onend = function() {{
-                // Khi micro nghỉ, lưu tạm các câu đã chốt vào lịch sử và reset mảng để làm trống bộ nhớ
-                let origHTML = "";
-                let transHTML = "";
-                for (let i = 0; i < origSegments.length; i++) {{
-                    if (origSegments[i]) origHTML += "<span style='color: #0056b3; font-weight: 500; display: block; margin-bottom: 12px;'>" + origSegments[i] + "</span>";
-                    if (transSegments[i]) {{
-                        let color = transSegments[i].includes("[⚡") ? "#888888" : "#28a745";
-                        let weight = transSegments[i].includes("[⚡") ? "normal" : "bold";
-                        transHTML += "<span style='color: " + color + "; font-weight: " + weight + "; display: block; margin-bottom: 12px;'>" + transSegments[i] + "</span>";
-                    }}
-                }}
-                
-                sessionOrigHistory += origHTML;
-                sessionTransHistory += transHTML;
-                
-                origSegments = [];
-                transSegments = [];
-                finalProcessed = [];
-
                 if (isRunning) {{
+                    // Tự động bật lại micro khi vừa chốt xong câu
                     try {{ recognition.start(); }} catch (e) {{}}
                 }} else {{
                     document.getElementById('status-badge').innerText = 'Trạng thái: Đã dừng hệ thống cabin.';
@@ -485,13 +446,9 @@ with tab2:
         function startCabin() {{
             if (recognition) {{
                 isRunning = true;
-                sessionOrigHistory = "";
-                sessionTransHistory = "";
-                origSegments = [];
-                transSegments = [];
-                finalProcessed = [];
-                transQueue = [];
-                isTranslatingFinal = false;
+                historyOriginal = "";
+                historyTranslated = "";
+                currentSessionText = "";
                 try {{ recognition.start(); }} catch (e) {{}}
             }}
         }}
