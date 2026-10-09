@@ -6,6 +6,7 @@ import urllib.request
 import textwrap
 import streamlit as st
 import streamlit.components.v1 as components
+from deep_translator import GoogleTranslator
 import edge_tts
 
 st.set_page_config(page_title="AI Translate Cabin Pro", layout="wide")
@@ -59,6 +60,7 @@ VOICE_MAP = {
     "vn Nữ - Tiếng Việt (Hoài My)": "vi-VN-HoaiMyNeural"
 }
 
+# --- TAB 1 CORE (GIỮ NGUYÊN HOÀN TOÀN) ---
 @st.cache_data(show_spinner=False, ttl=3600)
 def translate_stable(text, src_code, tgt_code):
     if not text.strip():
@@ -79,7 +81,6 @@ def translate_stable(text, src_code, tgt_code):
         p_trans = ""
         for chunk in chunks:
             success = False
-            # Dùng trực tiếp Google Translate qua endpoint clients5 ổn định, không dính rate-limit 429
             try:
                 url = f"https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl={src}&tl={tgt}&q={urllib.parse.quote(chunk)}"
                 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -93,7 +94,6 @@ def translate_stable(text, src_code, tgt_code):
             except Exception:
                 pass
             
-            # Dự phòng bằng gtx
             if not success:
                 try:
                     url2 = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src}&tl={tgt}&dt=t&q={urllib.parse.quote(chunk)}"
@@ -199,6 +199,7 @@ with tab1:
             except Exception:
                 pass
 
+# --- TAB 2 CORE (SỬA LỖI ĐẢO CHIỀU DỊCH VIỆT - ANH) ---
 with tab2:
     st.subheader("Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
 
@@ -208,9 +209,10 @@ with tab2:
     with col_t2_tgt:
         tgt_lang_name_t2 = st.selectbox("Ngôn ngữ dịch out:", list(LANG_OPTIONS.keys()), index=1, key="t2_tgt")
 
-    lang_code_js = "vi-VN" if LANG_OPTIONS[src_lang_name_t2] == "vi" else "en-US"
     src_code_val = LANG_OPTIONS[src_lang_name_t2]
     tgt_code_val = LANG_OPTIONS[tgt_lang_name_t2]
+    
+    lang_code_js = "vi-VN" if src_code_val == "vi" else "en-US"
 
     st.write("---")
 
@@ -320,6 +322,9 @@ with tab2:
         var lastFinalizedIndex = -1;
         var interimTimer;
 
+        var sourceLang = '{src_code_val}';
+        var targetLang = '{tgt_code_val}';
+
         function scrollToBottom() {{
             let pTrans = document.getElementById('scroll-trans');
             let pOrig = document.getElementById('scroll-orig');
@@ -331,11 +336,9 @@ with tab2:
             if (!text || text.trim() === "") return "";
             let chunk = text.length > 800 ? text.substring(text.length - 800) : text;
             let q = encodeURIComponent(chunk);
-            let src = '{src_code_val}';
-            let tgt = '{tgt_code_val}';
 
             try {{
-                let res = await fetch(`https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${{src}}&tl=${{tgt}}&q=${{q}}`);
+                let res = await fetch(`https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${{sourceLang}}&tl=${{targetLang}}&q=${{q}}`);
                 if (res.ok) {{
                     let data = await res.json();
                     return Array.isArray(data) ? data.join(" ") : data;
@@ -343,7 +346,7 @@ with tab2:
             }} catch(e) {{}}
 
             try {{
-                let res2 = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${{src}}&tl=${{tgt}}&dt=t&q=${{q}}`);
+                let res2 = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${{sourceLang}}&tl=${{targetLang}}&dt=t&q=${{q}}`);
                 if (res2.ok) {{
                     let data2 = await res2.json();
                     return data2[0].map(item => item[0]).join("");
