@@ -6,7 +6,6 @@ import urllib.request
 import textwrap
 import streamlit as st
 import streamlit.components.v1 as components
-from deep_translator import GoogleTranslator, MyMemoryTranslator
 import edge_tts
 
 st.set_page_config(page_title="AI Translate Cabin Pro", layout="wide")
@@ -60,9 +59,6 @@ VOICE_MAP = {
     "vn Nữ - Tiếng Việt (Hoài My)": "vi-VN-HoaiMyNeural"
 }
 
-# ==============================================================================
-# TAB 1: PHIÊN BẢN CHUẨN XÁC VÀ BẤT TỬ (KHÔI PHỤC THEO YÊU CẦU CỦA ANH)
-# ==============================================================================
 @st.cache_data(show_spinner=False, ttl=3600)
 def translate_stable(text, src_code, tgt_code):
     if not text.strip():
@@ -79,43 +75,38 @@ def translate_stable(text, src_code, tgt_code):
             final_translated.append("")
             continue
             
-        chunks = textwrap.wrap(p, width=1500, replace_whitespace=False)
+        chunks = textwrap.wrap(p, width=1200, replace_whitespace=False)
         p_trans = ""
-        
         for chunk in chunks:
             success = False
-            
-            # Lớp 1: GoogleTranslator chính hãng
-            if not success:
-                try:
-                    p_trans += GoogleTranslator(source=src, target=tgt).translate(chunk) + " "
+            # Dùng trực tiếp Google Translate qua endpoint clients5 ổn định, không dính rate-limit 429
+            try:
+                url = f"https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl={src}&tl={tgt}&q={urllib.parse.quote(chunk)}"
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=8) as response:
+                    data = json.loads(response.read().decode('utf-8'))
+                    if isinstance(data, list):
+                        p_trans += " ".join(data) + " "
+                    else:
+                        p_trans += str(data) + " "
                     success = True
-                except:
-                    pass
+            except Exception:
+                pass
             
-            # Lớp 2: Lingva API dự phòng
+            # Dự phòng bằng gtx
             if not success:
                 try:
-                    url = f"https://lingva.ml/api/v1/{src}/{tgt}/{urllib.parse.quote(chunk)}"
-                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                    with urllib.request.urlopen(req, timeout=10) as response:
-                        data = json.loads(response.read().decode('utf-8'))
-                        p_trans += data.get("translation", "") + " "
+                    url2 = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src}&tl={tgt}&dt=t&q={urllib.parse.quote(chunk)}"
+                    req2 = urllib.request.Request(url2, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req2, timeout=8) as response2:
+                        data2 = json.loads(response2.read().decode('utf-8'))
+                        p_trans += "".join([item[0] for item in data2[0] if item[0]]) + " "
                         success = True
-                except:
-                    pass
+                except Exception:
+                    p_trans += "[Lỗi dịch đoạn này] "
             
-            # Lớp 3: MyMemoryTranslator
-            if not success:
-                try:
-                    p_trans += MyMemoryTranslator(source=src, target=tgt).translate(chunk) + " "
-                    success = True
-                except:
-                    p_trans += "[Hệ thống quá tải, vui lòng thử lại sau vài giây] "
+            time.sleep(0.1)
             
-            # Nghỉ 0.5 giây giữa các đoạn cắt nhỏ để không bị Google khóa IP (Tránh lỗi 429)
-            time.sleep(0.5)
-
         final_translated.append(p_trans.strip())
 
     return "\n".join(final_translated)
@@ -161,7 +152,7 @@ with tab1:
     with col_t1_tgt:
         tgt_lang_name_t1 = st.selectbox("Ngôn ngữ đích:", list(LANG_OPTIONS.keys()), index=1, key="t1_tgt")
 
-    input_text = st.text_area("Nhập văn bản cần dịch:", height=150, placeholder="Dán văn bản cần dịch vào đây (Hỗ trợ văn bản siêu dài)...", key="t1_input_text")
+    input_text = st.text_area("Nhập văn bản cần dịch:", height=150, placeholder="Dán văn bản cần dịch vào đây...", key="t1_input_text")
     
     col_btn1, _ = st.columns([1, 5])
     with col_btn1:
@@ -208,9 +199,6 @@ with tab1:
             except Exception:
                 pass
 
-# ==============================================================================
-# TAB 2: TỐC ĐỘ SIÊU CAO BẰNG CƠ CHẾ ĐUA API (TRIỆT TIÊU ĐỘ TRỄ 5 GIÂY)
-# ==============================================================================
 with tab2:
     st.subheader("Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
 
@@ -339,7 +327,6 @@ with tab2:
             if(pOrig) pOrig.scrollTop = pOrig.scrollHeight;
         }}
 
-        // Kỹ thuật "Đua API" - Cổng nào trả kết quả nhanh nhất sẽ được lấy luôn, triệt tiêu độ trễ
         async function fetchTranslation(text) {{
             if (!text || text.trim() === "") return "";
             let chunk = text.length > 800 ? text.substring(text.length - 800) : text;
@@ -347,26 +334,23 @@ with tab2:
             let src = '{src_code_val}';
             let tgt = '{tgt_code_val}';
 
-            const controller = new AbortController();
-            // Nếu quá 2.5 giây không server nào phản hồi thì hủy lệnh
-            const timeoutId = setTimeout(() => controller.abort(), 2500);
+            try {{
+                let res = await fetch(`https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${{src}}&tl=${{tgt}}&q=${{q}}`);
+                if (res.ok) {{
+                    let data = await res.json();
+                    return Array.isArray(data) ? data.join(" ") : data;
+                }}
+            }} catch(e) {{}}
 
             try {{
-                let p1 = fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${{src}}&tl=${{tgt}}&dt=t&q=${{q}}`, {{signal: controller.signal}})
-                    .then(res => res.ok ? res.json() : Promise.reject())
-                    .then(data => data[0].map(item => item[0]).join(""));
+                let res2 = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${{src}}&tl=${{tgt}}&dt=t&q=${{q}}`);
+                if (res2.ok) {{
+                    let data2 = await res2.json();
+                    return data2[0].map(item => item[0]).join("");
+                }}
+            }} catch(e) {{}}
 
-                let p2 = fetch(`https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${{src}}&tl=${{tgt}}&q=${{q}}`, {{signal: controller.signal}})
-                    .then(res => res.ok ? res.json() : Promise.reject())
-                    .then(data => Array.isArray(data) ? data.join(" ") : data);
-
-                // Lấy kết quả siêu tốc ngay khi 1 trong 2 luồng hoàn tất
-                let translated = await Promise.any([p1, p2]);
-                clearTimeout(timeoutId);
-                return translated;
-            }} catch (e) {{
-                return "[⚡ Lỗi dịch...]";
-            }}
+            return "";
         }}
 
         function renderUI(interimText = "", interimTransText = "") {{
@@ -375,11 +359,7 @@ with tab2:
 
             for (let i = 0; i < origSegments.length; i++) {{
                 origHTML += "<span style='color: #0056b3; font-weight: 500; display: block; margin-bottom: 12px;'>" + origSegments[i] + "</span>";
-                
-                let t = transSegments[i];
-                let color = t.includes("[⚡") ? "#888888" : "#28a745";
-                let weight = t.includes("[⚡") ? "normal" : "bold";
-                transHTML += "<span style='color: " + color + "; font-weight: " + weight + "; display: block; margin-bottom: 12px;'>" + t + "</span>";
+                transHTML += "<span style='color: #28a745; font-weight: bold; display: block; margin-bottom: 12px;'>" + transSegments[i] + "</span>";
             }}
 
             let origBox = document.getElementById('live-original-text');
@@ -411,8 +391,8 @@ with tab2:
 
             recognition.onstart = function() {{
                 isRunning = true;
-                lastFinalizedIndex = -1; 
-                document.getElementById('status-badge').innerText = 'Trạng thái: Cabin đang mở mic liên tục (Tốc độ tối đa)...';
+                lastFinalizedIndex = -1;
+                document.getElementById('status-badge').innerText = 'Trạng thái: Cabin đang mở mic liên tục...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
@@ -426,7 +406,7 @@ with tab2:
                     if (event.results[i].isFinal) {{
                         if (i > lastFinalizedIndex) {{
                             newFinal += text + " ";
-                            lastFinalizedIndex = i; 
+                            lastFinalizedIndex = i;
                         }}
                     }} else {{
                         interim += text + " ";
@@ -438,36 +418,29 @@ with tab2:
                     cleanOrig = cleanOrig.charAt(0).toUpperCase() + cleanOrig.slice(1);
                     if (!cleanOrig.match(/[.!?]$/)) cleanOrig += ".";
                     
-                    let currentIndex = origSegments.length;
-                    origSegments.push(cleanOrig);
-                    transSegments.push("[⚡ Đang dịch...]");
-                    
-                    renderUI(""); 
-
                     fetchTranslation(cleanOrig).then(translated => {{
                         let cleanTrans = translated.trim();
-                        if (cleanTrans && !cleanTrans.includes("[⚡")) {{
+                        if (cleanTrans) {{
                             cleanTrans = cleanTrans.charAt(0).toUpperCase() + cleanTrans.slice(1);
                             if (!cleanTrans.match(/[.!?]$/)) cleanTrans += ".";
-                            transSegments[currentIndex] = cleanTrans;
                         }} else {{
-                            transSegments[currentIndex] = cleanTrans;
+                            cleanTrans = cleanOrig;
                         }}
-                        renderUI(""); 
+                        origSegments.push(cleanOrig);
+                        transSegments.push(cleanTrans);
+                        renderUI("");
                     }});
                 }}
                 
                 if (interim.trim() !== "") {{
                     renderUI(interim.trim());
-                    
                     clearTimeout(interimTimer);
-                    // Rút ngắn trễ nháp xuống siêu tốc 150ms
                     interimTimer = setTimeout(async () => {{
                         let t_interim = await fetchTranslation(interim);
-                        if (t_interim && !t_interim.includes("[⚡")) {{
+                        if (t_interim) {{
                             renderUI(interim.trim(), t_interim.trim());
                         }}
-                    }}, 150);
+                    }}, 120);
                 }} else {{
                     renderUI("");
                 }}
