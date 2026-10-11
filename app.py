@@ -60,7 +60,7 @@ VOICE_MAP = {
     "vn Nữ - Tiếng Việt (Hoài My)": "vi-VN-HoaiMyNeural"
 }
 
-# --- TAB 1 CORE (KHÔNG THAY ĐỔI) ---
+# --- TAB 1 CORE (ĐÃ KHÓA CỨNG - KHÔNG CHỈNH SỬA) ---
 @st.cache_data(show_spinner=False, ttl=3600)
 def translate_stable(text, src_code, tgt_code):
     if not text.strip():
@@ -113,4 +113,43 @@ def translate_stable(text, src_code, tgt_code):
 
 async def generate_tts_async(text, voice_key, speed_rate, output_filename):
     voice_name = VOICE_MAP.get(voice_key, "en-US-GuyNeural")
-    percent = int((speed_rate - 1.0) * 10
+    percent = int((speed_rate - 1.0) * 100)
+    rate_str = f"+{percent}%" if percent >= 0 else f"{percent}%"
+    
+    communicate = edge_tts.Communicate(text, voice_name, rate=rate_str)
+    await communicate.save(output_filename)
+
+def create_mp3(text, voice_key, speed_rate, filename="translated_output.mp3"):
+    try:
+        asyncio.run(generate_tts_async(text, voice_key, speed_rate, filename))
+        return True
+    except Exception:
+        return False
+
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+if not st.session_state["authenticated"]:
+    st.title("🔒 Đăng nhập Hệ thống Cabin Phiên dịch")
+    pwd_input = st.text_input("Nhập mật khẩu truy cập:", type="password")
+    if st.button("Đăng nhập"):
+        if pwd_input:
+            st.session_state["authenticated"] = True
+            st.rerun()
+    st.stop()
+
+tab1, tab2 = st.tabs([
+    "💬 Dịch văn bản & Hội thoại", 
+    "🎙 Cabin Phiên dịch Trực tiếp"
+])
+
+with tab1:
+    st.subheader("Dịch văn bản & Hội thoại chuyên sâu")
+    
+    col_t1_src, col_t1_tgt = st.columns(2)
+    with col_t1_src:
+        src_lang_name_t1 = st.selectbox("Ngôn ngữ nguồn:", list(LANG_OPTIONS.keys()), index=0, key="t1_src")
+    with col_t1_tgt:
+        tgt_lang_name_t1 = st.selectbox("Ngôn ngữ đích:", list(LANG_OPTIONS.keys()), index=1, key="t1_tgt")
+
+    input_text
