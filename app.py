@@ -1,262 +1,516 @@
-import io
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-import sklearn.metrics as metrics
+import time
+import json
+import asyncio
+import urllib.parse
+import urllib.request
+import textwrap
 import streamlit as st
-import torch
-import torch.nn as nn
-from PIL import Image
-from torchvision import transforms
+import streamlit.components.v1 as components
+from deep_translator import GoogleTranslator
+import edge_tts
 
-# Cấu hình tiêu đề trang ứng dụng
-st.set_page_config(
-    page_title="Hệ thống Hỗ trợ Chẩn đoán Nội soi Tai",
-    layout="wide",
-)
+st.set_page_config(page_title="AI Translate Cabin Pro", layout="wide")
 
-# Kiểm tra mật khẩu bảo vệ từ Streamlit Secrets
-password_input = st.text_input(
-    "Nhập mật khẩu truy cập ứng dụng:", type="password"
-)
-if "PASSWORD" in st.secrets:
-  if password_input != st.secrets["PASSWORD"]:
-    st.warning("Vui lòng nhập đúng mật khẩu để tiếp tục sử dụng hệ thống.")
+st.markdown("""
+<style>
+    h1, h2, h3, h4, h5, h6, 
+    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4, .stMarkdown h5, .stMarkdown h6 {
+        font-family: 'Times New Roman', Times, serif !important;
+        font-size: 13px !important;
+    }
+    
+    .stTabs button[data-baseweb="tab"] p {
+        font-family: 'Times New Roman', Times, serif !important;
+        font-size: 13px !important;
+        font-weight: bold !important;
+    }
+    
+    .stSelectbox label p, .stTextArea label p, .stSlider label p {
+        font-family: 'Times New Roman', Times, serif !important;
+        font-size: 13px !important;
+        font-weight: bold !important;
+    }
+    
+    .stButton button p {
+        font-family: 'Times New Roman', Times, serif !important;
+        font-size: 13px !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+LANG_OPTIONS = {
+    "VN Tiếng Việt": "vi",
+    "us Tiếng Anh (Mỹ)": "en",
+    "gb Tiếng Anh (Anh)": "en",
+    "cn Tiếng Trung": "zh-CN",
+    "jp Tiếng Nhật": "ja",
+    "kr Tiếng Hàn": "ko",
+    "fr Tiếng Pháp": "fr",
+    "de Tiếng Đức": "de",
+    "es Tiếng Tây Ban Nha": "es",
+    "it Tiếng Ý": "it",
+    "ru Tiếng Nga": "ru",
+    "th Tiếng Thái": "th"
+}
+
+VOICE_MAP = {
+    "us Nam - Anh-Mỹ (Guy - Trầm ấm)": "en-US-GuyNeural",
+    "us Nữ - Anh-Mỹ (Jenny - Truyền cảm)": "en-US-JennyNeural",
+    "vn Nam - Tiếng Việt (Nam Minh)": "vi-VN-NamMinhNeural",
+    "vn Nữ - Tiếng Việt (Hoài My)": "vi-VN-HoaiMyNeural"
+}
+
+# --- TAB 1 CORE (ĐÃ KHÓA BẢO VỆ NGUYÊN BẢN) ---
+@st.cache_data(show_spinner=False, ttl=3600)
+def translate_stable(text, src_code, tgt_code):
+    if not text.strip():
+        return ""
+    
+    src = "zh-CN" if src_code.lower() == "zh-cn" else src_code
+    tgt = "zh-CN" if tgt_code.lower() == "zh-cn" else tgt_code
+
+    paragraphs = text.split('\n')
+    final_translated = []
+    
+    for p in paragraphs:
+        if not p.strip():
+            final_translated.append("")
+            continue
+            
+        chunks = textwrap.wrap(p, width=1200, replace_whitespace=False)
+        p_trans = ""
+        for chunk in chunks:
+            success = False
+            try:
+                url = f"https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl={src}&tl={tgt}&q={urllib.parse.quote(chunk)}"
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=8) as response:
+                    data = json.loads(response.read().decode('utf-8'))
+                    if isinstance(data, list):
+                        p_trans += " ".join(data) + " "
+                    else:
+                        p_trans += str(data) + " "
+                    success = True
+            except Exception:
+                pass
+            
+            if not success:
+                try:
+                    url2 = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src}&tl={tgt}&dt=t&q={urllib.parse.quote(chunk)}"
+                    req2 = urllib.request.Request(url2, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req2, timeout=8) as response2:
+                        data2 = json.loads(response2.read().decode('utf-8'))
+                        p_trans += "".join([item[0] for item in data2[0] if item[0]]) + " "
+                        success = True
+                except Exception:
+                    p_trans += "[Lỗi dịch đoạn này] "
+            
+            time.sleep(0.1)
+            
+        final_translated.append(p_trans.strip())
+
+    return "\n".join(final_translated)
+
+async def generate_tts_async(text, voice_key, speed_rate, output_filename):
+    voice_name = VOICE_MAP.get(voice_key, "en-US-GuyNeural")
+    percent = int((speed_rate - 1.0) * 100)
+    rate_str = f"+{percent}%" if percent >= 0 else f"{percent}%"
+    
+    communicate = edge_tts.Communicate(text, voice_name, rate=rate_str)
+    await communicate.save(output_filename)
+
+def create_mp3(text, voice_key, speed_rate, filename="translated_output.mp3"):
+    try:
+        asyncio.run(generate_tts_async(text, voice_key, speed_rate, filename))
+        return True
+    except Exception:
+        return False
+
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+if not st.session_state["authenticated"]:
+    st.title("🔒 Đăng nhập Hệ thống Cabin Phiên dịch")
+    pwd_input = st.text_input("Nhập mật khẩu truy cập:", type="password")
+    if st.button("Đăng nhập"):
+        if pwd_input:
+            st.session_state["authenticated"] = True
+            st.rerun()
     st.stop()
-else:
-  st.warning("Chưa cấu hình mật khẩu trong Streamlit Secrets.")
-  st.stop()
 
-# Tiêu đề giao diện (Font Times New Roman, cỡ chữ 20px, màu Xanh Facebook)
-st.markdown(
-    """
-    <h3 style="
-        font-family: 'Times New Roman', Times, serif; 
-        font-size: 20px; 
-        color: #1877F2; 
-        font-weight: bold;
-        margin-bottom: 8px;
-    ">
-        Ứng dụng Phân tích Hình ảnh Nội soi Tai (Classification & Statistical Evaluation)
-    </h3>
-    """,
-    unsafe_allow_html=True,
-)
-
-# Thanh tùy chọn chế độ hoạt động ở Sidebar
-st.sidebar.header("⚙️ Cấu hình Chế độ Hoạt động")
-mode_option = st.sidebar.radio(
-    "Chọn mục đích sử dụng:",
-    (
-        "1. Kiểm tra nhanh ca lâm sàng (Single/Few-shot)",
-        "2. Đánh giá tập dữ liệu nghiên cứu (Batch Validation for Paper)",
-    ),
-)
-
-
-# Định nghĩa mô hình mẫu (ResNet18)
-class EarMultiTaskModel(nn.Module):
-
-  def __init__(self):
-    super(EarMultiTaskModel, self).__init__()
-    self.base_model = torch.hub.load(
-        "pytorch/vision:v0.10.0", "resnet18", pretrained=False
-    )
-    self.base_model.fc = nn.Linear(self.base_model.fc.in_features, 1)
-
-  def forward(self, x):
-    logits = self.base_model(x)
-    return logits
-
-
-@st.cache_resource
-def load_model():
-  model = EarMultiTaskModel()
-  model.eval()
-  return model
-
-
-model = load_model()
-
-preprocess = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+tab1, tab2 = st.tabs([
+    "💬 Dịch văn bản & Hội thoại", 
+    "🎙 Cabin Phiên dịch Trực tiếp"
 ])
 
-uploaded_files = st.file_uploader(
-    "Chọn các file ảnh nội soi tai (định dạng JPG, PNG):",
-    type=["jpg", "jpeg", "png"],
-    accept_multiple_files=True,
-)
+with tab1:
+    st.subheader("Dịch văn bản & Hội thoại chuyên sâu")
+    
+    col_t1_src, col_t1_tgt = st.columns(2)
+    with col_t1_src:
+        src_lang_name_t1 = st.selectbox("Ngôn ngữ nguồn:", list(LANG_OPTIONS.keys()), index=0, key="t1_src")
+    with col_t1_tgt:
+        tgt_lang_name_t1 = st.selectbox("Ngôn ngữ đích:", list(LANG_OPTIONS.keys()), index=1, key="t1_tgt")
 
-if uploaded_files:
-  results_data = []
-  progress_bar = st.progress(0)
-  total_files = len(uploaded_files)
+    input_text = st.text_area("Nhập văn bản cần dịch:", height=150, placeholder="Dán văn bản cần dịch vào đây...", key="t1_input_text")
+    
+    col_btn1, _ = st.columns([1, 5])
+    with col_btn1:
+        translate_clicked = st.button("Dịch ngay", key="btn_tab1", type="primary", use_container_width=True)
 
-  if (
-      "2. Đánh giá tập dữ liệu nghiên cứu" in mode_option
-      and total_files >= 10
-  ):
-    st.sidebar.info(
-        "💡 **Quy tắc gán nhãn tự động từ tên file:**\n- Nếu tên file chứa chữ"
-        " `normal` hoặc `bn` -> Nhãn thực tế = 0 (Bình thường)\n- Nếu chứa chữ"
-        " `abnormal`, `aom`, `ome` hoặc `bt` -> Nhãn thực tế = 1 (Bất thường)"
-    )
-
-  st.subheader(f"Kết quả phân tích chi tiết ({total_files} hình ảnh)")
-
-  for i, uploaded_file in enumerate(uploaded_files):
-    image = Image.open(uploaded_file).convert("RGB")
-    input_tensor = preprocess(image).unsqueeze(0)
-
-    with torch.no_grad():
-      output = model(input_tensor)
-      latent_val = output.item()
-      prob_val = torch.sigmoid(output).item()
-      pred_status_val = 1 if prob_val >= 0.5 else 0
-
-    if "2. Đánh giá tập dữ liệu nghiên cứu" in mode_option:
-      fname_lower = uploaded_file.name.lower()
-      if any(k in fname_lower for k in ["normal", "bn", "healthy", "c"]):
-        true_status_val = 0
-      elif any(k in fname_lower for k in ["abnormal", "aom", "ome", "b"]):
-        true_status_val = 1
-      else:
-        true_status_val = 1 if i % 2 == 0 else 0
-    else:
-      true_status_val = 0
-
-    results_data.append({
-        "filename": uploaded_file.name,
-        "true_status": true_status_val,
-        "latent": latent_val,
-        "pred_prob": prob_val,
-        "pred_status": pred_status_val,
-    })
-
-    if total_files <= 10:
-      col1, col2 = st.columns([1, 3])
-      with col1:
-        st.image(image, caption=uploaded_file.name, width=120)
-      with col2:
-        st.write(f"**Tên file:** {uploaded_file.name}")
-        st.write(
-            f"**Xác suất dự đoán bệnh lý:** **{prob_val * 100:.2f}%** (Logit:"
-            f" {latent_val:.4f})"
-        )
-        if pred_status_val == 1:
-          st.error("Kết quả AI: Bất thường (Abnormal)")
+    if translate_clicked:
+        if input_text.strip():
+            with st.spinner("Đang dịch thuật văn bản..."):
+                src_code_t1 = LANG_OPTIONS[src_lang_name_t1]
+                tgt_code_t1 = LANG_OPTIONS[tgt_lang_name_t1]
+                res_text = translate_stable(input_text, src_code_t1, tgt_code_t1)
+                st.session_state["last_translation"] = res_text
         else:
-          st.success("Kết quả AI: Bình thường (Normal)")
-      st.divider()
+            st.warning("Vui lòng nhập văn bản cần dịch.")
 
-    progress_bar.progress((i + 1) / total_files)
+    if "last_translation" in st.session_state and st.session_state["last_translation"]:
+        st.markdown("### Kết quả dịch:")
+        st.success(st.session_state["last_translation"])
 
-  df_results = pd.DataFrame(results_data)
+        st.markdown("---")
+        st.markdown("### Cài đặt Âm thanh & Tải về:")
+        
+        col_v_sel, col_r_sel = st.columns(2)
+        with col_v_sel:
+            voice_t1_label = st.selectbox("Chọn giọng đọc:", list(VOICE_MAP.keys()), key="t1_voice_dynamic")
+        with col_r_sel:
+            speed_option = st.slider("Tốc độ đọc (x lần):", min_value=0.5, max_value=2.0, value=1.0, step=0.1, key="t1_speed_dynamic")
 
-  if total_files > 10:
-    st.success(
-        f"Đã xử lý xong {total_files} hình ảnh. Dưới đây là bảng dữ liệu tổng"
-        " hợp:"
-    )
+        audio_file = "translated_speech.mp3"
+        success_audio = create_mp3(st.session_state["last_translation"], voice_t1_label, speed_option, audio_file)
 
-  st.subheader("Bảng dữ liệu suy luận")
-  st.dataframe(df_results, use_container_width=True)
+        if success_audio:
+            try:
+                with open(audio_file, "rb") as f:
+                    audio_bytes = f.read()
+                st.audio(audio_bytes, format="audio/mp3")
+                st.download_button(
+                    label="📥 Tải xuống file MP3",
+                    data=audio_bytes,
+                    file_name="phien_dich_ai.mp3",
+                    mime="audio/mp3",
+                    key="download_mp3_btn"
+                )
+            except Exception:
+                pass
 
-  if "2. Đánh giá tập dữ liệu nghiên cứu" in mode_option:
-    st.divider()
-    st.markdown(
-        "### 📊 Phân tích Thống kê Đánh giá Chẩn đoán (Validation Metrics)"
-    )
+with tab2:
+    st.subheader("Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
 
-    if len(df_results) >= 5 and df_results["true_status"].nunique() > 1:
-      y_true = df_results["true_status"]
-      y_scores = df_results["pred_prob"]
-      y_pred = df_results["pred_status"]
+    col_t2_src, col_t2_tgt, _ = st.columns([2, 2, 1])
+    with col_t2_src:
+        src_lang_name_t2 = st.selectbox("Ngôn ngữ nói (Mic):", list(LANG_OPTIONS.keys()), index=0, key="t2_src")
+    with col_t2_tgt:
+        tgt_lang_name_t2 = st.selectbox("Ngôn ngữ dịch out:", list(LANG_OPTIONS.keys()), index=1, key="t2_tgt")
 
-      fpr, tpr, thresholds = metrics.roc_curve(y_true, y_scores)
-      roc_auc = metrics.auc(fpr, tpr)
+    src_code_val = LANG_OPTIONS[src_lang_name_t2]
+    tgt_code_val = LANG_OPTIONS[tgt_lang_name_t2]
+    lang_code_js = "vi-VN" if src_code_val == "vi" else "en-US"
 
-      cm = metrics.confusion_matrix(y_true, y_pred)
-      tn, fp, fn, tp = cm.ravel() if cm.shape == (2, 2) else (0, 0, 0, 0)
+    st.write("---")
 
-      sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
-      specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
-      ppv = tp / (tp + fp) if (tp + fp) > 0 else 0
-      npv = tn / (tn + fn) if (tn + fn) > 0 else 0
-      accuracy = (tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) > 0 else 0
+    cabin_html_code = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <style>
+            .cabin-box {{
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                background: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 12px;
+                padding: 15px;
+                text-align: center;
+            }}
+            .btn-control {{
+                font-family: 'Times New Roman', Times, serif !important;
+                padding: 12px 24px;
+                font-size: 14px !important;
+                font-weight: bold;
+                border-radius: 8px;
+                border: none;
+                cursor: pointer;
+                margin: 5px;
+                color: white;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            }}
+            .btn-start {{ background-color: #28a745; }}
+            .btn-stop {{ background-color: #dc3545; }}
+            #status-badge {{
+                font-family: 'Times New Roman', Times, serif !important;
+                margin-top: 10px;
+                font-weight: bold;
+                font-size: 13px !important;
+                color: #28a745;
+            }}
+            .cabin-grid {{
+                display: flex;
+                flex-direction: row;
+                gap: 15px;
+                margin-top: 15px;
+            }}
+            .cabin-panel {{
+                flex: 1;
+                background: #ffffff;
+                border: 1px solid #ced4da;
+                border-radius: 8px;
+                padding: 15px;
+                text-align: left;
+                height: 500px; 
+                overflow-y: auto; 
+                box-shadow: inset 0 0 5px rgba(0,0,0,0.05);
+            }}
+            .panel-title {{
+                font-family: 'Times New Roman', Times, serif !important;
+                font-weight: bold;
+                font-size: 14px !important;
+                margin-bottom: 10px;
+                border-bottom: 1px solid #e9ecef;
+                padding-bottom: 5px;
+            }}
+            .panel-content {{
+                font-size: 16px;
+                line-height: 1.6;
+                word-wrap: break-word;
+            }}
+            
+            @media (max-width: 768px) {{
+                .cabin-grid {{
+                    flex-direction: column;
+                }}
+                .cabin-panel {{
+                    height: 350px; 
+                }}
+            }}
+        </style>
+    </head>
+    <body>
+    <div class="cabin-box">
+        <div>
+            <button id="start-btn" class="btn-control btn-start" onclick="startCabin()">KÍCH HOẠT CABIN TRỰC TIẾP</button>
+            <button id="stop-btn" class="btn-control btn-stop" onclick="stopCabin()" disabled>DỪNG CABIN</button>
+        </div>
+        <div id="status-badge">Trạng thái: Sẵn sàng kết nối Microphone...</div>
+        
+        <div class="cabin-grid">
+            <div class="cabin-panel" id="scroll-trans">
+                <div class="panel-title">Bản dịch Cabin ({tgt_lang_name_t2})</div>
+                <div id="live-translated-text" class="panel-content"></div>
+            </div>
+            <div class="cabin-panel" id="scroll-orig">
+                <div class="panel-title">Phát biểu Gốc ({src_lang_name_t2})</div>
+                <div id="live-original-text" class="panel-content"></div>
+            </div>
+        </div>
+    </div>
 
-      col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-      with col_m1:
-        st.metric(label="Diện tích AUC", value=f"{roc_auc:.4f}")
-      with col_m2:
-        st.metric(label="Độ nhạy (Sensitivity)", value=f"{sensitivity * 100:.2f}%")
-      with col_m3:
-        st.metric(
-            label="Độ đặc hiệu (Specificity)", value=f"{specificity * 100:.2f}%"
-        )
-      with col_m4:
-        st.metric(label="Độ chính xác (Accuracy)", value=f"{accuracy * 100:.2f}%")
+    <script>
+        var recognition;
+        var isRunning = false;
+        
+        var origSegments = [];
+        var transSegments = [];
+        var currentSpeechBuffer = "";
+        
+        var pauseTimer = null;
+        var interimTimer = null;
 
-      col_chart1, col_chart2 = st.columns([1.2, 1])
+        var sourceLang = '{src_code_val}';
+        var targetLang = '{tgt_code_val}';
 
-      with col_chart1:
-        fig, ax = plt.subplots(figsize=(6, 5))
-        ax.plot(
-            fpr,
-            tpr,
-            color="#1877F2",
-            lw=2.5,
-            label=f"ROC curve (AUC = {roc_auc:.4f})",
-        )
-        ax.plot([0, 1], [0, 1], color="gray", lw=1.5, linestyle="--")
-        ax.set_xlim([0.0, 1.0])
-        ax.set_ylim([0.0, 1.05])
-        ax.set_xlabel("1 - Specificity (False Positive Rate)", fontsize=11)
-        ax.set_ylabel("Sensitivity (True Positive Rate)", fontsize=11)
-        ax.set_title(
-            "Đường cong ROC đánh giá hiệu năng mô hình",
-            fontsize=12,
-            fontweight="bold",
-        )
-        ax.legend(loc="lower right", fontsize=11)
-        ax.grid(alpha=0.3)
-        st.pyplot(fig)
+        function scrollToBottom() {{
+            let pTrans = document.getElementById('scroll-trans');
+            let pOrig = document.getElementById('scroll-orig');
+            if(pTrans) pTrans.scrollTop = pTrans.scrollHeight;
+            if(pOrig) pOrig.scrollTop = pOrig.scrollHeight;
+        }}
 
-      with col_chart2:
-        st.markdown("#### 📋 Bảng Ma trận Nhầm lẫn (Confusion Matrix)")
-        cm_df = pd.DataFrame(
-            [[tp, fn], [fp, tn]],
-            index=["Thực tế: Bệnh lý", "Thực tế: Bình thường"],
-            columns=["Dự đoán: Bệnh lý", "Dự đoán: Bình thường"],
-        )
-        st.dataframe(cm_df, use_container_width=True)
+        async function fetchTranslation(text) {{
+            if (!text || text.trim() === "") return "";
+            let chunk = text.length > 800 ? text.substring(text.length - 800) : text;
+            let q = encodeURIComponent(chunk);
 
-        st.info(
-            f"• PPV (Giá trị dự đoán dương): **{ppv * 100:.2f}%**\n• NPV (Giá"
-            f" trị dự đoán âm): **{npv * 100:.2f}%**"
-        )
+            try {{
+                let res = await fetch(`https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${{sourceLang}}&tl=${{targetLang}}&q=${{q}}`);
+                if (res.ok) {{
+                    let data = await res.json();
+                    return Array.isArray(data) ? data.join(" ") : data;
+                }}
+            }} catch(e) {{}}
 
-      csv_data = df_results.to_csv(index=False).encode("utf-8")
-      st.download_button(
-          label="📥 Tải xuống tệp dữ liệu chuẩn hóa phục vụ viết bài báo (.csv)",
-          data=csv_data,
-          file_name="dataset_validation_results.csv",
-          mime="text/csv",
-      )
+            try {{
+                let res2 = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${{sourceLang}}&tl=${{targetLang}}&dt=t&q=${{q}}`);
+                if (res2.ok) {{
+                    let data2 = await res2.json();
+                    return data2[0].map(item => item[0]).join("");
+                }}
+            }} catch(e) {{}}
 
-    else:
-      st.warning(
-          "⚠️ Để chạy thống kê và vẽ biểu đồ ROC chuẩn bài báo, bạn cần tải lên"
-          " tối thiểu **5 hình ảnh** và có sự pha trộn giữa cả 2 nhóm nhãn"
-          " (Bình thường và Bất thường)."
-      )
-  else:
-    st.info(
-        "💡 **Đang ở chế độ kiểm tra nhanh:** Ứng dụng chỉ tập trung hiển thị"
-        " kết quả dự đoán cho từng ảnh riêng lẻ. Để xem phân tích ROC, AUC và"
-        " xuất dữ liệu thống kê, vui lòng chuyển sang **Chế độ đánh giá tập"
-        " dữ liệu nghiên cứu** ở cột bên trái."
-    )
+            return "";
+        }}
+
+        function commitSentence(sentence) {{
+            let cleanOrig = sentence.trim();
+            if (!cleanOrig) return;
+
+            cleanOrig = cleanOrig.charAt(0).toUpperCase() + cleanOrig.slice(1);
+            if (!cleanOrig.match(/[.!?]$/)) cleanOrig += ".";
+
+            if (origSegments.length > 0 && origSegments[origSegments.length - 1] === cleanOrig) {{
+                currentSpeechBuffer = "";
+                return;
+            }}
+
+            let idx = origSegments.length;
+            origSegments.push(cleanOrig);
+            transSegments.push("[⚡...]");
+            currentSpeechBuffer = "";
+            renderUI("", "");
+
+            fetchTranslation(cleanOrig).then(translated => {{
+                let cleanTrans = translated.trim();
+                if (cleanTrans) {{
+                    cleanTrans = cleanTrans.charAt(0).toUpperCase() + cleanTrans.slice(1);
+                    if (!cleanTrans.match(/[.!?]$/)) cleanTrans += ".";
+                }} else {{
+                    cleanTrans = cleanOrig;
+                }}
+                transSegments[idx] = cleanTrans;
+                renderUI("", "");
+            }});
+        }}
+
+        function renderUI(interimText = "", interimTransText = "") {{
+            let origHTML = "";
+            let transHTML = "";
+
+            for (let i = 0; i < origSegments.length; i++) {{
+                origHTML += "<span style='color: #0056b3; font-weight: 500; display: block; margin-bottom: 12px;'>" + origSegments[i] + "</span>";
+                let t = transSegments[i];
+                let color = t.includes("[⚡") ? "#888888" : "#28a745";
+                let weight = t.includes("[⚡") ? "normal" : "bold";
+                transHTML += "<span style='color: " + color + "; font-weight: " + weight + "; display: block; margin-bottom: 12px;'>" + t + "</span>";
+            }}
+
+            let origBox = document.getElementById('live-original-text');
+            let transBox = document.getElementById('live-translated-text');
+
+            if (interimText.trim() !== "") {{
+                origBox.innerHTML = origHTML + "<span style='color: #888888; font-style: italic;'>" + interimText + "</span>";
+            }} else {{
+                origBox.innerHTML = origHTML;
+            }}
+
+            if (interimTransText.trim() !== "") {{
+                transBox.innerHTML = transHTML + "<span style='color: #888888; font-style: italic;'>" + interimTransText + "</span>";
+            }} else {{
+                transBox.innerHTML = transHTML;
+            }}
+            
+            scrollToBottom();
+        }}
+
+        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {{
+            document.getElementById('status-badge').innerText = 'Trình duyệt không hỗ trợ Web Speech API. Hãy dùng Google Chrome hoặc Safari!';
+        }} else {{
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = '{lang_code_js}';
+
+            recognition.onstart = function() {{
+                isRunning = true;
+                currentSpeechBuffer = "";
+                document.getElementById('status-badge').innerText = 'Trạng thái: Cabin đang mở mic liên tục...';
+                document.getElementById('start-btn').disabled = true;
+                document.getElementById('stop-btn').disabled = false;
+            }};
+
+            recognition.onresult = function(event) {{
+                clearTimeout(pauseTimer);
+
+                let latestText = "";
+                let isFinalChunk = false;
+
+                for (let i = event.resultIndex; i < event.results.length; ++i) {{
+                    latestText += event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {{
+                        isFinalChunk = true;
+                    }}
+                }}
+
+                currentSpeechBuffer = latestText.trim();
+
+                if (isFinalChunk && currentSpeechBuffer) {{
+                    commitSentence(currentSpeechBuffer);
+                    return;
+                }}
+
+                if (currentSpeechBuffer) {{
+                    renderUI(currentSpeechBuffer);
+
+                    clearTimeout(interimTimer);
+                    interimTimer = setTimeout(async () => {{
+                        let t_interim = await fetchTranslation(currentSpeechBuffer);
+                        if (t_interim) {{
+                            renderUI(currentSpeechBuffer, t_interim.trim());
+                        }}
+                    }}, 120);
+
+                    let wordCount = currentSpeechBuffer.split(/\s+/).length;
+                    let timeoutDuration = wordCount > 10 ? 800 : 1200;
+
+                    pauseTimer = setTimeout(() => {{
+                        if (currentSpeechBuffer) {{
+                            commitSentence(currentSpeechBuffer);
+                            try {{
+                                recognition.stop();
+                            }} catch(e) {{}}
+                        }}
+                    }}, timeoutDuration);
+                }}
+            }};
+
+            recognition.onend = function() {{
+                if (isRunning) {{
+                    try {{ recognition.start(); }} catch (e) {{}}
+                }} else {{
+                    document.getElementById('status-badge').innerText = 'Trạng thái: Đã dừng hệ thống cabin.';
+                    document.getElementById('start-btn').disabled = false;
+                    document.getElementById('stop-btn').disabled = true;
+                }}
+            }};
+        }}
+
+        function startCabin() {{
+            if (recognition) {{
+                isRunning = true;
+                origSegments = [];
+                transSegments = [];
+                currentSpeechBuffer = "";
+                try {{ recognition.start(); }} catch (e) {{}}
+            }}
+        }}
+
+        function stopCabin() {{
+            isRunning = false;
+            clearTimeout(pauseTimer);
+            if (currentSpeechBuffer) {{
+                commitSentence(currentSpeechBuffer);
+            }}
+            if (recognition) {{ recognition.stop(); }}
+        }}
+    </script>
+    </body>
+    </html>
+    """
+
+    components.html(cabin_html_code, height=750)
