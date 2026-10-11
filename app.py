@@ -199,7 +199,7 @@ with tab1:
             except Exception:
                 pass
 
-# --- TAB 2 CORE (SỬA LỖI ĐẢO CHIỀU DỊCH VIỆT - ANH) ---
+# --- TAB 2 CORE (NGẮT CÂU THÔNG MINH KHI DỪNG NGẮN) ---
 with tab2:
     st.subheader("Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
 
@@ -319,8 +319,10 @@ with tab2:
         
         var origSegments = [];
         var transSegments = [];
-        var lastFinalizedIndex = -1;
-        var interimTimer;
+        var currentSpeechBuffer = "";
+        
+        var pauseTimer = null;
+        var interimTimer = null;
 
         var sourceLang = '{src_code_val}';
         var targetLang = '{tgt_code_val}';
@@ -356,13 +358,42 @@ with tab2:
             return "";
         }}
 
+        function commitSentence(sentence) {{
+            let cleanOrig = sentence.trim();
+            if (!cleanOrig) return;
+
+            cleanOrig = cleanOrig.charAt(0).toUpperCase() + cleanOrig.slice(1);
+            if (!cleanOrig.match(/[.!?]$/)) cleanOrig += ".";
+
+            let idx = origSegments.length;
+            origSegments.push(cleanOrig);
+            transSegments.push("[⚡...]");
+            currentSpeechBuffer = "";
+            renderUI("", "");
+
+            fetchTranslation(cleanOrig).then(translated => {{
+                let cleanTrans = translated.trim();
+                if (cleanTrans) {{
+                    cleanTrans = cleanTrans.charAt(0).toUpperCase() + cleanTrans.slice(1);
+                    if (!cleanTrans.match(/[.!?]$/)) cleanTrans += ".";
+                }} else {{
+                    cleanTrans = cleanOrig;
+                }}
+                transSegments[idx] = cleanTrans;
+                renderUI("", "");
+            }});
+        }}
+
         function renderUI(interimText = "", interimTransText = "") {{
             let origHTML = "";
             let transHTML = "";
 
             for (let i = 0; i < origSegments.length; i++) {{
                 origHTML += "<span style='color: #0056b3; font-weight: 500; display: block; margin-bottom: 12px;'>" + origSegments[i] + "</span>";
-                transHTML += "<span style='color: #28a745; font-weight: bold; display: block; margin-bottom: 12px;'>" + transSegments[i] + "</span>";
+                let t = transSegments[i];
+                let color = t.includes("[⚡") ? "#888888" : "#28a745";
+                let weight = t.includes("[⚡") ? "normal" : "bold";
+                transHTML += "<span style='color: " + color + "; font-weight: " + weight + "; display: block; margin-bottom: 12px;'>" + t + "</span>";
             }}
 
             let origBox = document.getElementById('live-original-text');
@@ -394,62 +425,62 @@ with tab2:
 
             recognition.onstart = function() {{
                 isRunning = true;
-                lastFinalizedIndex = -1;
+                currentSpeechBuffer = "";
                 document.getElementById('status-badge').innerText = 'Trạng thái: Cabin đang mở mic liên tục...';
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
             }};
 
             recognition.onresult = function(event) {{
-                let interim = '';
-                let newFinal = '';
+                clearTimeout(pauseTimer);
+
+                let latestText = "";
+                let isFinalChunk = false;
 
                 for (let i = event.resultIndex; i < event.results.length; ++i) {{
-                    let text = event.results[i][0].transcript;
+                    latestText += event.results[i][0].transcript;
                     if (event.results[i].isFinal) {{
-                        if (i > lastFinalizedIndex) {{
-                            newFinal += text + " ";
-                            lastFinalizedIndex = i;
-                        }}
-                    }} else {{
-                        interim += text + " ";
+                        isFinalChunk = true;
                     }}
                 }}
 
-                if (newFinal.trim() !== "") {{
-                    let cleanOrig = newFinal.trim();
-                    cleanOrig = cleanOrig.charAt(0).toUpperCase() + cleanOrig.slice(1);
-                    if (!cleanOrig.match(/[.!?]$/)) cleanOrig += ".";
-                    
-                    fetchTranslation(cleanOrig).then(translated => {{
-                        let cleanTrans = translated.trim();
-                        if (cleanTrans) {{
-                            cleanTrans = cleanTrans.charAt(0).toUpperCase() + cleanTrans.slice(1);
-                            if (!cleanTrans.match(/[.!?]$/)) cleanTrans += ".";
-                        }} else {{
-                            cleanTrans = cleanOrig;
-                        }}
-                        origSegments.push(cleanOrig);
-                        transSegments.push(cleanTrans);
-                        renderUI("");
-                    }});
+                currentSpeechBuffer = latestText.trim();
+
+                if (isFinalChunk && currentSpeechBuffer) {{
+                    commitSentence(currentSpeechBuffer);
+                    return;
                 }}
-                
-                if (interim.trim() !== "") {{
-                    renderUI(interim.trim());
+
+                if (currentSpeechBuffer) {{
+                    renderUI(currentSpeechBuffer);
+
                     clearTimeout(interimTimer);
                     interimTimer = setTimeout(async () => {{
-                        let t_interim = await fetchTranslation(interim);
+                        let t_interim = await fetchTranslation(currentSpeechBuffer);
                         if (t_interim) {{
-                            renderUI(interim.trim(), t_interim.trim());
+                            renderUI(currentSpeechBuffer, t_interim.trim());
                         }}
                     }}, 120);
-                }} else {{
-                    renderUI("");
+
+                    // Bộ đếm dừng 1.2 giây tự ngắt câu không phụ thuộc vào trình duyệt
+                    let wordCount = currentSpeechBuffer.split(/\s+/).length;
+                    let timeoutDuration = wordCount > 10 ? 800 : 1200;
+
+                    pauseTimer = setTimeout(() => {{
+                        if (currentSpeechBuffer) {{
+                            commitSentence(currentSpeechBuffer);
+                            try {{
+                                recognition.stop();
+                            }} catch(e) {{}}
+                        }}
+                    }}, timeoutDuration);
                 }}
             }};
 
             recognition.onend = function() {{
+                if (currentSpeechBuffer) {{
+                    commitSentence(currentSpeechBuffer);
+                }}
                 if (isRunning) {{
                     try {{ recognition.start(); }} catch (e) {{}}
                 }} else {{
@@ -465,12 +496,17 @@ with tab2:
                 isRunning = true;
                 origSegments = [];
                 transSegments = [];
+                currentSpeechBuffer = "";
                 try {{ recognition.start(); }} catch (e) {{}}
             }}
         }}
 
         function stopCabin() {{
             isRunning = false;
+            clearTimeout(pauseTimer);
+            if (currentSpeechBuffer) {{
+                commitSentence(currentSpeechBuffer);
+            }}
             if (recognition) {{ recognition.stop(); }}
         }}
     </script>
