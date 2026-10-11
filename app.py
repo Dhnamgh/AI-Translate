@@ -143,4 +143,34 @@ tab1, tab2 = st.tabs([
     "🎙 Cabin Phiên dịch Trực tiếp"
 ])
 
-with tab
+with tab1:
+    st.subheader("Dịch văn bản & Hội thoại chuyên sâu")
+    
+    col_t1_src, col_t1_tgt = st.columns(2)
+    with col_t1_src:
+        src_lang_name_t1 = st.selectbox("Ngôn ngữ nguồn:", list(LANG_OPTIONS.keys()), index=0, key="t1_src")
+    with col_t1_tgt:
+        tgt_lang_name_t1 = st.selectbox("Ngôn ngữ đích:", list(LANG_OPTIONS.keys()), index=1, key="t1_tgt")
+
+    input_text = st.text_area("Nhập văn bản cần dịch:", height=150, placeholder="Dán văn bản cần dịch vào đây...", key="t1_input_text")
+    
+    col_btn1, _ = st.columns([1, 5])
+    with col_btn1:
+        translate_clicked = st.button("Dịch ngay", key="btn_tab1", type="primary", use_container_width=True)
+
+    if translate_clicked:
+        if input_text.strip():
+            with st.spinner("Đang dịch thuật văn bản..."):
+                src_code = LANG_OPTIONS[src_lang_name_t1]
+                tgt_code = LANG_OPTIONS[tgt_lang_name_t1]
+                res_text = translate_stable(input_text, src_code, tgt_code)
+                st.session_state["last_translation"] = res_text
+        else:
+            st.warning("Vui lòng nhập văn bản cần dịch.")
+
+    if "last_translation" in st.session_state and st.session_state["last_translation"]:
+        st.markdown("### Kết quả dịch:")
+        st.success(st.session_state["last_translation"])
+
+        st.markdown("---")
+        st
