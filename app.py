@@ -199,7 +199,7 @@ with tab1:
             except Exception:
                 pass
 
-# --- TAB 2 CORE (NGẮT CÂU THÔNG MINH KHI DỪNG NGẮN) ---
+# --- TAB 2 CORE (LOẠI BỎ LẶP CÂU HOÀN TOÀN) ---
 with tab2:
     st.subheader("Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
 
@@ -365,6 +365,11 @@ with tab2:
             cleanOrig = cleanOrig.charAt(0).toUpperCase() + cleanOrig.slice(1);
             if (!cleanOrig.match(/[.!?]$/)) cleanOrig += ".";
 
+            if (origSegments.length > 0 && origSegments[origSegments.length - 1] === cleanOrig) {{
+                currentSpeechBuffer = "";
+                return;
+            }}
+
             let idx = origSegments.length;
             origSegments.push(cleanOrig);
             transSegments.push("[⚡...]");
@@ -462,7 +467,6 @@ with tab2:
                         }}
                     }}, 120);
 
-                    // Bộ đếm dừng 1.2 giây tự ngắt câu không phụ thuộc vào trình duyệt
                     let wordCount = currentSpeechBuffer.split(/\s+/).length;
                     let timeoutDuration = wordCount > 10 ? 800 : 1200;
 
@@ -478,9 +482,6 @@ with tab2:
             }};
 
             recognition.onend = function() {{
-                if (currentSpeechBuffer) {{
-                    commitSentence(currentSpeechBuffer);
-                }}
                 if (isRunning) {{
                     try {{ recognition.start(); }} catch (e) {{}}
                 }} else {{
@@ -504,9 +505,9 @@ with tab2:
         function stopCabin() {{
             isRunning = false;
             clearTimeout(pauseTimer);
-            if (currentSpeechBuffer) {{
+            if (currentSpeechBuffer) {
                 commitSentence(currentSpeechBuffer);
-            }}
+            }
             if (recognition) {{ recognition.stop(); }}
         }}
     </script>
