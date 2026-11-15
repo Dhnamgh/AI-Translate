@@ -38,6 +38,17 @@ st.markdown("""
         font-size: 13px !important;
     }
 
+    /* Đổi màu nút Primary mặc định của Streamlit từ đỏ sang xanh dương đồng bộ */
+    button[kind="primary"] {
+        background-color: #0d6efd !important;
+        border-color: #0d6efd !important;
+        color: #ffffff !important;
+    }
+    button[kind="primary"]:hover {
+        background-color: #0b5ed7 !important;
+        border-color: #0a58ca !important;
+    }
+
     /* Thanh Tab chính màu xanh đồng bộ */
     .stTabs [data-baseweb="tab-list"] {
         background-color: #0d6efd;
@@ -56,7 +67,7 @@ st.markdown("""
         padding: 8px 14px;
         border: none !important;
         flex: 1 1 auto;
-        transition: all 0.25s ease;
+        transition: all 0.2s ease;
     }
 
     .stTabs button[data-baseweb="tab"]:hover {
@@ -88,14 +99,6 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(0,0,0,0.05);
     }
 
-    /* Thanh Menu xanh chức năng phụ dạng nút nổi bật, gọn gàng */
-    div[data-testid="stHorizontalBlock"].blue-subnav {
-        background-color: #0d6efd;
-        padding: 6px;
-        border-radius: 8px;
-        margin-bottom: 12px;
-    }
-
     .translated-box {
         background-color: #e8f5e9;
         border: 1px solid #c8e6c9;
@@ -109,42 +112,6 @@ st.markdown("""
         line-height: 1.6;
         white-space: pre-wrap;
         word-wrap: break-word;
-    }
-
-    .dropdown-drawer {
-        background-color: #ffffff;
-        border: 1px solid #b6d4fe;
-        border-top: 4px solid #0d6efd;
-        border-radius: 8px;
-        padding: 16px;
-        box-shadow: 0 4px 12px rgba(13, 110, 253, 0.08);
-        margin-top: 6px;
-    }
-
-    .dialogue-turn-male {
-        background-color: #f0f7ff;
-        border-left: 4px solid #0d6efd;
-        padding: 10px 14px;
-        border-radius: 6px;
-        margin-bottom: 8px;
-    }
-
-    .dialogue-turn-female {
-        background-color: #fff0f6;
-        border-left: 4px solid #d63384;
-        padding: 10px 14px;
-        border-radius: 6px;
-        margin-bottom: 8px;
-    }
-
-    .lecture-container {
-        max-height: 450px;
-        overflow-y: auto;
-        border: 1px solid #b6d4fe;
-        border-radius: 8px;
-        padding: 16px;
-        background-color: #ffffff;
-        font-family: 'Times New Roman', Times, serif;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -231,7 +198,7 @@ def create_mp3(text, voice_key, speed_rate, filename="translated_output.mp3"):
     except Exception:
         return False
 
-# --- TẠO AUDIO ĐA GIỌNG NAM/NỮ BẰNG EDGE-TTS (CHẠY CHUẨN TRÊN ĐIỆN THOẠI) ---
+# --- TẠO AUDIO ĐA GIỌNG NAM/NỮ BẰNG EDGE-TTS ---
 async def build_dialogue_audio_async(turns, speed_rate=1.0, swap_gender=False):
     percent = int((speed_rate - 1.0) * 100)
     rate_str = f"+{percent}%" if percent >= 0 else f"{percent}%"
@@ -249,14 +216,15 @@ async def build_dialogue_audio_async(turns, speed_rate=1.0, swap_gender=False):
                 combined_bytes.extend(chunk["data"])
     return bytes(combined_bytes)
 
-def generate_dialogue_mp3_bytes(turns, speed_rate=1.0, swap_gender=False):
+@st.cache_data(show_spinner=False, ttl=3600)
+def generate_dialogue_mp3_cached(turns_json_str, speed_rate=1.0, swap_gender=False):
     try:
+        turns = json.loads(turns_json_str)
         return asyncio.run(build_dialogue_audio_async(turns, speed_rate, swap_gender))
     except Exception:
         return None
 
 def extract_text_from_uploaded(uploaded_file):
-    """Đọc nội dung từ Word (.docx), PDF (.pdf) hoặc PNG (.png)"""
     if uploaded_file is None:
         return ""
     file_name = uploaded_file.name.lower()
@@ -290,7 +258,6 @@ def extract_text_from_uploaded(uploaded_file):
         except Exception:
             text_content = ""
     elif file_name.endswith(".png"):
-        # Nếu có GEMINI_API_KEY trong secrets thì dùng Vision phân tích ảnh, nếu không dùng tên file & ngữ cảnh
         api_key = st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, "secrets") else ""
         if api_key:
             try:
@@ -301,7 +268,7 @@ def extract_text_from_uploaded(uploaded_file):
                     model="gemini-2.5-flash",
                     contents=[
                         types.Part.from_bytes(data=raw_bytes, mime_type="image/png"),
-                        "Mô tả ngắn gọn tình huống, bối cảnh và các từ khóa chính xuất hiện trong hình ảnh này bằng tiếng Việt."
+                        "Nhận diện bối cảnh, quán xá/địa điểm và tình huống giao tiếp trong hình ảnh này bằng tiếng Việt ngắn gọn."
                     ]
                 )
                 text_content = resp.text.strip()
@@ -309,44 +276,41 @@ def extract_text_from_uploaded(uploaded_file):
                 pass
         if not text_content:
             clean_name = re.sub(r'[_\-\.]+', ' ', uploaded_file.name.rsplit('.', 1)[0])
-            text_content = f"Tình huống thực tế qua hình ảnh: {clean_name}"
+            text_content = f"Mua đồ uống và giao tiếp tại {clean_name}" if "starbucks" in clean_name.lower() or "coffee" in clean_name.lower() else f"Tình huống giao tiếp liên quan đến {clean_name}"
     return text_content.strip()
 
-# --- BỘ TẠO SINH HỘI THOẠI & BÀI GIẢNG THÔNG MINH (KHÔNG ĐÒI API KEY) ---
 def smart_generate_dialogue(topic_text):
-    """Tự động sinh kịch bản hội thoại 8-10 lượt lời phân vai Nam/Nữ sát thực tế theo bất kỳ chủ đề nào"""
-    api_key = st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, "secrets") else ""
-    if api_key:
-        try:
-            from google import genai
-            client = genai.Client(api_key=api_key)
-            prompt = f"""
-            Tạo một kịch bản hội thoại tiếng Anh thực tế, tự nhiên, dài 8-10 lượt đối đáp giữa 2 nhân vật (1 Nam gender='male', 1 Nữ gender='female') về chủ đề: "{topic_text}".
-            Trả về STRICT JSON:
-            {{
-              "title": "Tiêu đề tình huống",
-              "video_category": "Hội nghị & Thảo luận học thuật" hoặc "Du lịch, Sân bay & Giao thông" hoặc "Công việc & Đời sống hàng ngày",
-              "turns": [{{"role": "Tên vai", "gender": "male", "en": "Câu tiếng Anh", "vi": "Dịch tiếng Việt"}}],
-              "vocab": [{{"word": "từ vựng", "ipa": "/phiên âm/", "mean": "nghĩa tiếng Việt"}}],
-              "grammar": {{"title": "Tên ngữ pháp", "rule": "Công thức", "example": "Ví dụ"}}
-            }}
-            """
-            resp = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
-            raw = re.sub(r'^```json\s*|\s*```$', '', resp.text.strip())
-            return json.loads(raw)
-        except Exception:
-            pass
-
-    # Bộ máy tạo sinh ngữ cảnh thông minh tích hợp sẵn (luôn hoạt động 100%)
     lower = topic_text.lower()
     is_vi = bool(re.search(r'[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]', topic_text, re.I))
     en_topic = translate_stable(topic_text, "vi", "en") if is_vi else topic_text
 
-    # Phân loại ngữ cảnh tự động
+    is_cafe = any(k in lower for k in ["starbucks", "coffee", "cà phê", "quán", "nhà hàng", "đồ uống", "order", "cafe", "tea", "trà"])
     is_academic = any(k in lower for k in ["nghiên cứu", "hội nghị", "ai", "chẩn đoán", "y khoa", "thống kê", "t-test", "hồi quy", "dược", "lâm sàng", "luận án", "khoa học", "conference", "medical", "diagnosis", "research", "clinical"])
     is_travel = any(k in lower for k in ["sân bay", "nhập cảnh", "hải quan", "metro", "tàu", "khách sạn", "du lịch", "máy bay", "visa", "airport", "immigration", "hotel", "station"])
 
-    if is_academic:
+    if is_cafe:
+        vid_cat = "Công việc & Đời sống hàng ngày"
+        turns_en = [
+            ("Barista (Nhân viên pha chế)", "male", "Good morning! Welcome to Starbucks. What can I get started for you today?"),
+            ("Customer (Khách hàng)", "female", "Hi! Could I get a Grande Iced Caramel Macchiato with oat milk, please?"),
+            ("Barista (Nhân viên pha chế)", "male", "Sure thing. Would you like any whipped cream or extra espresso shot on that?"),
+            ("Customer (Khách hàng)", "female", "No whipped cream, please, and just regular sweetness. Also, do you have any seasonal holiday pastries?"),
+            ("Barista (Nhân viên pha chế)", "male", "Yes, we have freshly baked cranberry bliss bars and cinnamon rolls right here in the display case."),
+            ("Customer (Khách hàng)", "female", "I will take one cinnamon roll warmed up, please. Can I pay by contactless card?"),
+            ("Barista (Nhân viên pha chế)", "male", "Of course! Just tap your card on the reader. Your order will be ready at the pickup counter in two minutes."),
+            ("Customer (Khách hàng)", "female", "Thank you so much. Merry Christmas and have a wonderful day!")
+        ]
+        vocab_list = [
+            {"word": "oat milk", "ipa": "/oʊt mɪlk/", "mean": "sữa yến mạch"},
+            {"word": "seasonal pastry", "ipa": "/ˈsiː.zən.əl ˈpeɪ.stri/", "mean": "bánh ngọt theo mùa"},
+            {"word": "pickup counter", "ipa": "/ˈpɪk.ʌp ˈkaʊn.t̬ɚ/", "mean": "quầy nhận đồ"}
+        ]
+        grammar_obj = {
+            "title": "Câu gọi món lịch sự với 'Could I get...' & 'I will take...'",
+            "rule": "Could I get + [Size] + [Drink] + with + [Option], please?",
+            "example": "Could I get a medium iced latte with less ice, please?"
+        }
+    elif is_academic:
         vid_cat = "Hội nghị & Thảo luận học thuật"
         turns_en = [
             ("Dr. David (Moderator)", "male", f"Welcome everyone to today's scientific session focusing on {en_topic}. Let us begin with the key clinical implications."),
@@ -359,13 +323,12 @@ def smart_generate_dialogue(topic_text):
             ("Dr. Sarah (Presenter)", "female", f"With proper clinician training and standardized guidelines, {en_topic} will serve as a reliable decision-support tool in daily practice.")
         ]
         vocab_list = [
-            {"word": "diagnostic accuracy", "ipa": "/ˌdaɪ.əɡˈnɑːs.tɪk ˈæk.jɚ.ə.si/", "mean": "độ chính xác trong chẩn đoán"},
-            {"word": "multicenter", "ipa": "/ˌmʌl.tiˈsen.t̬ɚ/", "mean": "đa trung tâm (nghiên cứu)"},
-            {"word": "comorbidities", "ipa": "/ˌkoʊ.mɔːrˈbɪd.ə.t̬iz/", "mean": "bệnh đồng mắc"},
-            {"word": "decision-support tool", "ipa": "/dɪˈsɪʒ.ən səˈpɔːrt tuːl/", "mean": "công cụ hỗ trợ ra quyết định"}
+            {"word": "diagnostic accuracy", "ipa": "/ˌdaɪ.əɡˈnɑːs.tɪk ˈæk.jɚ.ə.si/", "mean": "độ chính xác chẩn đoán"},
+            {"word": "multicenter", "ipa": "/ˌmʌl.tiˈsen.t̬ɚ/", "mean": "đa trung tâm"},
+            {"word": "comorbidities", "ipa": "/ˌkoʊ.mɔːrˈbɪd.ə.t̬iz/", "mean": "bệnh đồng mắc"}
         ]
         grammar_obj = {
-            "title": "Cấu trúc Mệnh đề Danh ngữ & Bị động trong Thảo luận Khoa học",
+            "title": "Mệnh đề Danh ngữ & Bị động trong Báo cáo Khoa học",
             "rule": "Findings demonstrate that + S + V / S + is/are + integrated into + Noun",
             "example": f"Recent clinical evidence demonstrates that {en_topic} enhances early detection."
         }
@@ -383,12 +346,12 @@ def smart_generate_dialogue(topic_text):
         ]
         vocab_list = [
             {"word": "itinerary", "ipa": "/aɪˈtɪn.ə.rer.i/", "mean": "lịch trình chuyến đi"},
-            {"word": "directional signs", "ipa": "/dɪˈrek.ʃən.əl saɪnz/", "mean": "biển chỉ dẫn hướng đi"},
-            {"word": "verification", "ipa": "/ˌver.ə.fəˈkeɪ.ʃən/", "mean": "sự xác minh, kiểm tra"}
+            {"word": "directional signs", "ipa": "/dɪˈrek.ʃən.əl saɪnz/", "mean": "biển chỉ dẫn"},
+            {"word": "verification", "ipa": "/ˌver.ə.fəˈkeɪ.ʃən/", "mean": "sự xác minh"}
         ]
         grammar_obj = {
-            "title": "Câu hỏi Đề nghị & Hướng dẫn Lịch sự trong Giao tiếp Quốc tế",
-            "rule": "Could you tell me...? / To + V-infinitive, please + V-bare...",
+            "title": "Câu hỏi Đề nghị & Hướng dẫn Lịch sự",
+            "rule": "To + V-infinitive, please + V-bare...",
             "example": f"To complete {en_topic} quickly, please have your identification ready."
         }
     else:
@@ -404,12 +367,12 @@ def smart_generate_dialogue(topic_text):
             ("Ms. Jenny", "female", "You are very welcome. Let me know if you need any further assistance.")
         ]
         vocab_list = [
-            {"word": "well-structured", "ipa": "/ˌwel ˈstrʌk.tʃɚd/", "mean": "được tổ chức chặt chẽ, rõ ràng"},
+            {"word": "well-structured", "ipa": "/ˌwel ˈstrʌk.tʃɚd/", "mean": "tổ chức chặt chẽ"},
             {"word": "essential", "ipa": "/ɪˈsen.ʃəl/", "mean": "thiết yếu, quan trọng"},
             {"word": "finalize", "ipa": "/ˈfaɪ.nəl.aɪz/", "mean": "hoàn thiện, chốt lại"}
         ]
         grammar_obj = {
-            "title": "Cấu trúc Đề xuất & Đồng thuận trong Giao tiếp Công việc",
+            "title": "Cấu trúc Đề xuất & Đồng thuận",
             "rule": "Shall we + V-bare...? / Let us + V-bare + so that + S + V",
             "example": f"Shall we discuss the key points of {en_topic} before the meeting?"
         }
@@ -420,7 +383,7 @@ def smart_generate_dialogue(topic_text):
         full_turns.append({"role": role, "gender": gender, "en": en_line, "vi": vi_line})
 
     return {
-        "title": f"Hội thoại Thực tế: {topic_text} ({en_topic})",
+        "title": f"Hội thoại Thực tế: {topic_text}",
         "video_category": vid_cat,
         "turns": full_turns,
         "vocab": vocab_list,
@@ -428,14 +391,13 @@ def smart_generate_dialogue(topic_text):
     }
 
 def smart_generate_lecture(topic_text, extracted_doc_text=""):
-    """Tự động biên soạn bài viết / kịch bản giảng bài 4 phần chi tiết (không đòi API Key)"""
     lower = topic_text.lower()
     is_vi = bool(re.search(r'[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]', topic_text, re.I))
     en_topic = translate_stable(topic_text, "vi", "en") if is_vi else topic_text
 
     if extracted_doc_text:
         clean_doc = re.sub(r'\n+', '\n', extracted_doc_text)[:3000]
-        paras = [p.strip() for p in clean_doc.split('\n') if len(p.strip()) > 15][:5]
+        paras = [p.strip() for p in clean_doc.split('\n') if len(p.strip()) > 10][:5]
         is_vi_doc = bool(re.search(r'[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]', clean_doc, re.I))
         sections = []
         all_en = ""
@@ -443,8 +405,8 @@ def smart_generate_lecture(topic_text, extracted_doc_text=""):
             en_p = translate_stable(p, "vi", "en") if is_vi_doc else p
             vi_p = p if is_vi_doc else translate_stable(p, "en", "vi")
             all_en += " " + en_p
-            sections.append({"heading": f"Phần {idx + 1}: Nội dung trọng tâm từ tài liệu", "en": en_p, "vi": vi_p})
-        words = list(dict.fromkeys([w.lower() for w in re.findall(r'\b[a-zA-Z]{7,}\b', all_en)]))[:6]
+            sections.append({"heading": f"Phần {idx + 1}: Nội dung trích xuất từ tài liệu", "en": en_p, "vi": vi_p})
+        words = list(dict.fromkeys([w.lower() for w in re.findall(r'\b[a-zA-Z]{6,}\b', all_en)]))[:6]
         vocab = [{"word": w, "mean": translate_stable(w, "en", "vi")} for w in words]
         return {"title": f"BÀI GIẢNG TỪ TÀI LIỆU: {topic_text.upper()}", "sections": sections, "vocab": vocab}
 
@@ -792,7 +754,7 @@ with tab2:
     components.html(cabin_html_code, height=700, scrolling=True)
 
 # ==============================================================================
-# TAB 3: HỌC TIẾNG ANH CÙNG AI (MENU XANH XỔ XUỐNG GỌN GÀNG + KHÔNG ĐÒI API KEY)
+# TAB 3: HỌC TIẾNG ANH CÙNG AI (TỐC ĐỘ NHANH + MENU XANH ĐỒNG BỘ + KHÔNG VỠ HTML)
 # ==============================================================================
 with tab3:
     st.subheader("Hệ thống Học Tiếng Anh Tương tác cùng AI")
@@ -802,7 +764,7 @@ with tab3:
         uploaded_file_t3 = st.file_uploader("Chọn file Word (.docx), PDF (.pdf) hoặc Hình ảnh (.png):", type=["docx", "pdf", "png"], key="t3_file_uploader")
         if uploaded_file_t3 is not None:
             if uploaded_file_t3.name.lower().endswith(".png"):
-                st.image(uploaded_file_t3, caption="Hình ảnh đã tải lên", width=280)
+                st.image(uploaded_file_t3, caption="Hình ảnh đã tải lên", width=260)
             col_u1, col_u2 = st.columns(2)
             with col_u1:
                 if st.button("Tạo Hội thoại Nam/Nữ từ tài liệu", type="primary", use_container_width=True):
@@ -820,49 +782,83 @@ with tab3:
                         st.session_state["active_t3_menu"] = "lecture"
                         st.rerun()
 
-    # Khởi tạo trạng thái menu xanh xổ xuống
+    # Thanh chọn chức năng phụ màu xanh dương nổi bật (Segmented Control / Radio styled)
     if "active_t3_menu" not in st.session_state:
         st.session_state["active_t3_menu"] = "video"
 
-    # Thanh Menu màu xanh dương nổi bật: Nhấn nút nào thì nút đó sáng lên (type="primary") và xổ nội dung bên dưới
-    m_col1, m_col2, m_col3, m_col4 = st.columns(4)
-    with m_col1:
-        is_v = st.session_state["active_t3_menu"] == "video"
-        if st.button("Video & Hội thoại ▼", type="primary" if is_v else "secondary", use_container_width=True):
-            st.session_state["active_t3_menu"] = "video"
-            st.rerun()
-    with m_col2:
-        is_l = st.session_state["active_t3_menu"] == "lecture"
-        if st.button("Bài viết & Kịch bản ▼", type="primary" if is_l else "secondary", use_container_width=True):
-            st.session_state["active_t3_menu"] = "lecture"
-            st.rerun()
-    with m_col3:
-        is_d = st.session_state["active_t3_menu"] == "dict"
-        if st.button("Từ điển & Phát âm ▼", type="primary" if is_d else "secondary", use_container_width=True):
-            st.session_state["active_t3_menu"] = "dict"
-            st.rerun()
-    with m_col4:
-        is_c = st.session_state["active_t3_menu"] == "chat"
-        if st.button("Gia sư Song ngữ ▼", type="primary" if is_c else "secondary", use_container_width=True):
-            st.session_state["active_t3_menu"] = "chat"
-            st.rerun()
+    menu_map = {
+        "video": "Video & Hội thoại",
+        "lecture": "Bài viết & Kịch bản",
+        "dict": "Từ điển & Phát âm",
+        "chat": "Gia sư Song ngữ"
+    }
 
-    # Khung nội dung xổ xuống tương ứng với mục menu đang chọn
-    active_menu = st.session_state["active_t3_menu"]
+    st.markdown("""
+    <style>
+        div[data-testid="stRadio"] > div[role="radiogroup"] {
+            background-color: #0d6efd;
+            padding: 5px;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: row;
+            gap: 5px;
+            width: 100%;
+        }
+        div[data-testid="stRadio"] > div[role="radiogroup"] > label {
+            flex: 1;
+            background-color: rgba(255,255,255,0.15);
+            color: #ffffff !important;
+            border-radius: 6px;
+            padding: 8px 10px;
+            justify-content: center;
+            cursor: pointer;
+            margin: 0 !important;
+            transition: all 0.2s ease;
+        }
+        div[data-testid="stRadio"] > div[role="radiogroup"] > label[data-checked="true"],
+        div[data-testid="stRadio"] > div[role="radiogroup"] > label:has(input:checked) {
+            background-color: #ffffff !important;
+            color: #0d6efd !important;
+            font-weight: bold;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+        }
+        div[data-testid="stRadio"] > div[role="radiogroup"] > label > div:first-child {
+            display: none !important;
+        }
+        div[data-testid="stRadio"] > div[role="radiogroup"] > label p {
+            font-family: 'Times New Roman', Times, serif !important;
+            font-size: 13.5px !important;
+            font-weight: bold !important;
+            color: inherit !important;
+            text-align: center;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+    selected_label = st.radio(
+        "Menu chức năng:",
+        list(menu_map.values()),
+        index=list(menu_map.keys()).index(st.session_state["active_t3_menu"]),
+        horizontal=True,
+        label_visibility="collapsed",
+        key="t3_blue_nav_radio"
+    )
+    active_menu = [k for k, v in menu_map.items() if v == selected_label][0]
+    st.session_state["active_t3_menu"] = active_menu
 
     # --------------------------------------------------------------------------
     # MỤC 1: VIDEO & HỘI THOẠI ĐA VAI NAM / NỮ
     # --------------------------------------------------------------------------
     if active_menu == "video":
-        col_topic, col_btn = st.columns([3, 1])
+        col_topic, col_btn = st.columns([3.5, 1])
         with col_topic:
             custom_scene_prompt = st.text_input(
-                "Nhập tình huống thực tế bất kỳ (VD: hội nghị khoa học chủ đề AI trong chẩn đoán, tại ga metro, nhập cảnh sân bay...):",
+                "Nhập tình huống thực tế bất kỳ (VD: hội nghị khoa học AI trong chẩn đoán, tại ga metro, nhập cảnh sân bay...):",
                 placeholder="Nhập chủ đề hoặc tình huống...",
                 key="scene_prompt_input"
             )
         with col_btn:
-            st.markdown("<div style='margin-top: 26px;'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='height: 26px;'></div>", unsafe_allow_html=True)
             gen_scene_btn = st.button("Tạo Hội thoại", type="primary", use_container_width=True)
 
         if gen_scene_btn and custom_scene_prompt.strip():
@@ -874,9 +870,9 @@ with tab3:
             st.session_state["ai_dialogue_data"] = smart_generate_dialogue("Hội nghị khoa học chủ đề AI trong chẩn đoán")
 
         dlg = st.session_state["ai_dialogue_data"]
-        st.markdown(f"#### {dlg.get('title', 'Hội thoại Thực tế')}")
+        st.markdown(f"**{dlg.get('title', 'Hội thoại Thực tế')}**")
 
-        col_vid, col_side = st.columns([1.4, 1])
+        col_vid, col_side = st.columns([1.45, 1])
 
         with col_vid:
             cat_default = dlg.get("video_category", "Hội nghị & Thảo luận học thuật")
@@ -885,7 +881,7 @@ with tab3:
             selected_vid_cat = st.selectbox("Video bối cảnh minh họa:", cat_keys, index=default_idx, key="vid_cat_sel")
             st.video(SAMPLE_VIDEOS[selected_vid_cat])
 
-            c_aud1, c_aud2, c_aud3, c_aud4 = st.columns(4)
+            c_aud1, c_aud2, c_aud3, c_aud4 = st.columns([1.2, 1.2, 1, 1])
             with c_aud1:
                 play_norm = st.button("Nghe Nam/Nữ (1.0x)", type="primary", use_container_width=True)
             with c_aud2:
@@ -897,64 +893,71 @@ with tab3:
 
             if play_norm or play_slow:
                 rate_val = 0.7 if play_slow else 1.0
-                with st.spinner("Đang tạo giọng đọc Nam & Nữ bản xứ..."):
-                    mp3_bytes = generate_dialogue_mp3_bytes(dlg["turns"], speed_rate=rate_val, swap_gender=swap_g)
+                with st.spinner("Đang tổng hợp giọng Nam & Nữ..."):
+                    turns_str = json.dumps(dlg["turns"], ensure_ascii=False)
+                    mp3_bytes = generate_dialogue_mp3_cached(turns_str, speed_rate=rate_val, swap_gender=swap_g)
                     if mp3_bytes:
                         st.session_state["ai_dialogue_audio"] = mp3_bytes
 
             if st.session_state.get("ai_dialogue_audio"):
                 st.audio(st.session_state["ai_dialogue_audio"], format="audio/mp3", autoplay=True)
 
-            st.markdown("---")
+            # Ghép HTML sát lề trái (không thụt 4 dấu cách để tránh bị biến thành code block)
+            turns_html_parts = []
             for idx, turn in enumerate(dlg["turns"]):
                 g = turn.get("gender", "male" if idx % 2 == 0 else "female").lower()
                 if swap_g:
                     g = "female" if g == "male" else "male"
-                css_cls = "dialogue-turn-male" if g == "male" else "dialogue-turn-female"
+                bg_color = "#f0f7ff" if g == "male" else "#fff0f6"
+                border_color = "#0d6efd" if g == "male" else "#d63384"
                 g_label = "Giọng Nam" if g == "male" else "Giọng Nữ"
                 
                 if show_sub:
-                    st.markdown(f"""
-                    <div class="{css_cls}">
-                        <div style="font-size:12px; font-weight:bold; color:#084298;">{turn['role']} ({g_label})</div>
-                        <div style="font-size:15px; font-weight:bold; color:#111; margin-top:3px;">{turn['en']}</div>
-                        <div style="font-size:13.5px; color:#555; font-style:italic; margin-top:3px;">{turn['vi']}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    turns_html_parts.append(
+                        f"<div style='background:{bg_color}; border-left:4px solid {border_color}; padding:10px 12px; border-radius:6px; margin-bottom:8px;'>"
+                        f"<div style='font-size:12px; font-weight:bold; color:#084298;'>{turn['role']} ({g_label})</div>"
+                        f"<div style='font-size:14.5px; font-weight:bold; color:#111; margin-top:3px;'>{turn['en']}</div>"
+                        f"<div style='font-size:13px; color:#555; font-style:italic; margin-top:3px;'>{turn['vi']}</div>"
+                        f"</div>"
+                    )
                 else:
-                    st.markdown(f"""
-                    <div class="{css_cls}">
-                        <div style="font-size:12px; font-weight:bold; color:#084298;">{turn['role']} ({g_label})</div>
-                        <div style="font-size:14px; color:#888; font-style:italic;">[Đang ẩn phụ đề]</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    turns_html_parts.append(
+                        f"<div style='background:{bg_color}; border-left:4px solid {border_color}; padding:10px 12px; border-radius:6px; margin-bottom:8px;'>"
+                        f"<div style='font-size:12px; font-weight:bold; color:#084298;'>{turn['role']} ({g_label})</div>"
+                        f"<div style='font-size:13.5px; color:#888; font-style:italic;'>[Đang ẩn phụ đề để luyện nghe]</div>"
+                        f"</div>"
+                    )
+            st.markdown("".join(turns_html_parts), unsafe_allow_html=True)
 
         with col_side:
             st.markdown("**Từ vựng trọng tâm trong bài:**")
+            vocab_html_parts = []
             for v in dlg.get("vocab", []):
-                st.markdown(f"""
-                <div style="background:#f8f9fa; border-left:4px solid #0d6efd; padding:8px 12px; border-radius:6px; margin-bottom:8px;">
-                    <div style="font-weight:bold; color:#0d6efd; font-size:15px;">{v.get('word', '')} <span style="font-family:monospace; color:#6c757d; font-size:12px;">{v.get('ipa', '')}</span></div>
-                    <div style="font-size:13.5px; color:#212529;">Nghĩa: <b>{v.get('mean', '')}</b></div>
-                </div>
-                """, unsafe_allow_html=True)
+                vocab_html_parts.append(
+                    f"<div style='background:#f8f9fa; border-left:4px solid #0d6efd; padding:8px 12px; border-radius:6px; margin-bottom:8px;'>"
+                    f"<div style='font-weight:bold; color:#0d6efd; font-size:14.5px;'>{v.get('word', '')} <span style='font-family:monospace; color:#6c757d; font-size:12px;'>{v.get('ipa', '')}</span></div>"
+                    f"<div style='font-size:13px; color:#212529;'>Nghĩa: <b>{v.get('mean', '')}</b></div>"
+                    f"</div>"
+                )
+            st.markdown("".join(vocab_html_parts), unsafe_allow_html=True)
 
             gram = dlg.get("grammar", {})
             if gram:
                 st.markdown("**Chủ điểm Ngữ pháp liên quan:**")
-                st.markdown(f"""
-                <div style="background:#e7f1ff; border:1px solid #b6d4fe; padding:12px; border-radius:6px;">
-                    <div style="font-weight:bold; color:#084298; font-size:14px;">{gram.get('title', '')}</div>
-                    <div style="background:#fff; padding:5px 8px; border-radius:4px; font-family:monospace; font-size:12px; color:#d63384; margin:6px 0;">{gram.get('rule', '')}</div>
-                    <div style="font-size:13px;"><b>Ví dụ:</b> <i>"{gram.get('example', '')}"</i></div>
-                </div>
-                """, unsafe_allow_html=True)
+                gram_html = (
+                    f"<div style='background:#e7f1ff; border:1px solid #b6d4fe; padding:12px; border-radius:6px;'>"
+                    f"<div style='font-weight:bold; color:#084298; font-size:14px;'>{gram.get('title', '')}</div>"
+                    f"<div style='background:#fff; padding:5px 8px; border-radius:4px; font-family:monospace; font-size:12px; color:#d63384; margin:6px 0;'>{gram.get('rule', '')}</div>"
+                    f"<div style='font-size:13px;'><b>Ví dụ:</b> <i>\"{gram.get('example', '')}\"</i></div>"
+                    f"</div>"
+                )
+                st.markdown(gram_html, unsafe_allow_html=True)
 
     # --------------------------------------------------------------------------
     # MỤC 2: BÀI VIẾT & KỊCH BẢN GIẢNG BÀI + XUẤT WORD (.DOC)
     # --------------------------------------------------------------------------
     elif active_menu == "lecture":
-        col_l1, col_l2 = st.columns([3, 1])
+        col_l1, col_l2 = st.columns([3.5, 1])
         with col_l1:
             lec_prompt = st.text_input(
                 "Nhập chủ đề bài giảng hoặc bài viết (VD: bài giảng t-test 1 mẫu, tại ga metro...):",
@@ -962,7 +965,7 @@ with tab3:
                 key="lec_prompt_input"
             )
         with col_l2:
-            st.markdown("<div style='margin-top: 26px;'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='height: 26px;'></div>", unsafe_allow_html=True)
             gen_lec_btn = st.button("Soạn Bài giảng", type="primary", use_container_width=True)
 
         if gen_lec_btn and lec_prompt.strip():
@@ -976,11 +979,11 @@ with tab3:
 
         word_body = f"<h2 style='text-align:center; color:#084298; font-family:\"Times New Roman\", serif;'>{lec.get('title', '')}</h2><hr/>"
         for s in lec.get("sections", []):
-            word_body += f"""
-                <p style='font-weight:bold; color:#0d6efd; font-size:13pt;'>{s.get('heading', '')}</p>
-                <p style='font-size:12pt; line-height:1.5;'>{s.get('en', '')}</p>
-                <p style='font-size:11.5pt; font-style:italic; color:#333;'><i>(Dịch nghĩa: {s.get('vi', '')})</i></p>
-            """
+            word_body += (
+                f"<p style='font-weight:bold; color:#0d6efd; font-size:13pt;'>{s.get('heading', '')}</p>"
+                f"<p style='font-size:12pt; line-height:1.5;'>{s.get('en', '')}</p>"
+                f"<p style='font-size:11.5pt; font-style:italic; color:#333;'><i>(Dịch nghĩa: {s.get('vi', '')})</i></p>"
+            )
         if lec.get("vocab"):
             word_body += "<p style='font-weight:bold; color:#084298; font-size:13pt;'>THUẬT NGỮ TRỌNG TÂM:</p><ul>"
             for v in lec["vocab"]:
@@ -989,7 +992,7 @@ with tab3:
 
         full_word_html = f"<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><style>body{{font-family:'Times New Roman',serif;}}</style></head><body>{word_body}</body></html>"
 
-        col_w1, col_w2, col_w3 = st.columns([1.2, 1.2, 1])
+        col_w1, col_w2, col_w3 = st.columns([1.2, 1.4, 1])
         with col_w1:
             st.download_button(
                 label="Tải về file Word (.doc)",
@@ -1011,34 +1014,36 @@ with tab3:
         if st.session_state.get("lec_mp3"):
             st.audio(st.session_state["lec_mp3"], format="audio/mp3")
 
-        display_html = f"<div class='lecture-container'><h4 style='color:#084298; border-bottom:2px solid #0d6efd; padding-bottom:6px;'>{lec.get('title', '')}</h4>"
+        # Viết liền không thụt 4 khoảng trắng để tuyệt đối không bị vỡ HTML thành code block
+        html_chunks = [
+            f"<div style='max-height:460px; overflow-y:auto; border:1px solid #b6d4fe; border-radius:8px; padding:16px; background-color:#ffffff; font-family:\"Times New Roman\", Times, serif;'>",
+            f"<h4 style='color:#084298; border-bottom:2px solid #0d6efd; padding-bottom:6px; margin-top:0;'>{lec.get('title', '')}</h4>"
+        ]
         for s in lec.get("sections", []):
             vi_block = f"<div style='color:#495057; font-style:italic; margin-top:6px; border-top:1px dashed #ced4da; padding-top:4px;'>{s.get('vi', '')}</div>" if show_lec_vi else ""
-            display_html += f"""
-            <div style='background:#f8f9fa; border-left:4px solid #0d6efd; padding:10px 12px; margin-bottom:12px; border-radius:4px;'>
-                <div style='font-weight:bold; color:#0d6efd; margin-bottom:4px;'>{s.get('heading', '')}</div>
-                <div style='color:#111; line-height:1.55;'>{s.get('en', '')}</div>
-                {vi_block}
-            </div>
-            """
+            html_chunks.append(
+                f"<div style='background:#f8f9fa; border-left:4px solid #0d6efd; padding:10px 12px; margin-bottom:12px; border-radius:4px;'>"
+                f"<div style='font-weight:bold; color:#0d6efd; margin-bottom:4px;'>{s.get('heading', '')}</div>"
+                f"<div style='color:#111; line-height:1.55;'>{s.get('en', '')}</div>"
+                f"{vi_block}"
+                f"</div>"
+            )
         if lec.get("vocab"):
-            display_html += "<div style='background:#e7f1ff; padding:10px; border-radius:6px;'><b>Từ vựng & Thuật ngữ trọng tâm:</b><ul>"
-            for v in lec["vocab"]:
-                display_html += f"<li><b>{v.get('word', '')}:</b> {v.get('mean', '')}</li>"
-            display_html += "</ul></div>"
-        display_html += "</div>"
+            vocab_lis = "".join([f"<li><b>{v.get('word', '')}:</b> {v.get('mean', '')}</li>" for v in lec["vocab"]])
+            html_chunks.append(f"<div style='background:#e7f1ff; padding:10px; border-radius:6px;'><b>Từ vựng & Thuật ngữ trọng tâm:</b><ul style='margin-bottom:0;'>{vocab_lis}</ul></div>")
+        html_chunks.append("</div>")
 
-        st.markdown(display_html, unsafe_allow_html=True)
+        st.markdown("".join(html_chunks), unsafe_allow_html=True)
 
     # --------------------------------------------------------------------------
     # MỤC 3: TỪ ĐIỂN & PHÁT ÂM CHUẨN NAM / NỮ
     # --------------------------------------------------------------------------
     elif active_menu == "dict":
-        col_d1, col_d2 = st.columns([3, 1])
+        col_d1, col_d2 = st.columns([3.5, 1])
         with col_d1:
             dict_word = st.text_input("Nhập từ vựng hoặc thuật ngữ tiếng Anh:", placeholder="VD: hypothesis, immigration, diagnostic...", key="dict_w_in")
         with col_d2:
-            st.markdown("<div style='margin-top: 26px;'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='height: 26px;'></div>", unsafe_allow_html=True)
             lookup_btn = st.button("Tra cứu Từ điển", type="primary", use_container_width=True)
 
         if lookup_btn and dict_word.strip():
@@ -1060,11 +1065,11 @@ with tab3:
     # MỤC 4: GIA SƯ HỘI THOẠI SONG NGỮ
     # --------------------------------------------------------------------------
     elif active_menu == "chat":
-        col_c1, col_c2 = st.columns([3, 1])
+        col_c1, col_c2 = st.columns([3.5, 1])
         with col_c1:
             tutor_q = st.text_input("Nhập câu tiếng Việt cần diễn đạt hoặc câu tiếng Anh cần chỉnh sửa:", key="tutor_q_in")
         with col_c2:
-            st.markdown("<div style='margin-top: 26px;'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='height: 26px;'></div>", unsafe_allow_html=True)
             ask_btn = st.button("Hỏi Gia sư AI", type="primary", use_container_width=True)
 
         if ask_btn and tutor_q.strip():
