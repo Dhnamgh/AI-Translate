@@ -13,25 +13,77 @@ st.set_page_config(page_title="AI Translate Cabin Pro", layout="wide")
 
 st.markdown("""
 <style>
+    /* Font chữ chuẩn Times New Roman 13px */
     h1, h2, h3, h4, h5, h6, 
     .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4, .stMarkdown h5, .stMarkdown h6 {
         font-family: 'Times New Roman', Times, serif !important;
         font-size: 13px !important;
     }
-    .stTabs button[data-baseweb="tab"] p {
-        font-family: 'Times New Roman', Times, serif !important;
-        font-size: 13px !important;
-        font-weight: bold !important;
-    }
+    
     .stSelectbox label p, .stTextArea label p, .stSlider label p {
         font-family: 'Times New Roman', Times, serif !important;
         font-size: 13px !important;
         font-weight: bold !important;
     }
+    
     .stButton button p {
         font-family: 'Times New Roman', Times, serif !important;
         font-size: 13px !important;
     }
+
+    /* Thiết kế thanh Tab Menu màu xanh chuyên nghiệp, xổ nội dung mượt */
+    .stTabs [data-baseweb="tab-list"] {
+        background-color: #0d6efd;
+        padding: 6px 10px 0px 10px;
+        border-radius: 8px 8px 0px 0px;
+        gap: 6px;
+        border-bottom: 2px solid #0a58ca;
+    }
+
+    .stTabs button[data-baseweb="tab"] {
+        background-color: rgba(255, 255, 255, 0.15);
+        color: #ffffff !important;
+        border-radius: 6px 6px 0px 0px;
+        padding: 10px 20px;
+        border: none !important;
+        transition: all 0.25s ease;
+    }
+
+    .stTabs button[data-baseweb="tab"]:hover {
+        background-color: rgba(255, 255, 255, 0.3);
+    }
+
+    .stTabs button[data-baseweb="tab"][aria-selected="true"] {
+        background-color: #ffffff !important;
+        color: #0d6efd !important;
+        box-shadow: 0 -2px 6px rgba(0,0,0,0.1);
+    }
+
+    .stTabs button[data-baseweb="tab"] p {
+        font-family: 'Times New Roman', Times, serif !important;
+        font-size: 14px !important;
+        font-weight: bold !important;
+    }
+
+    .stTabs [data-baseweb="tab-highlight"] {
+        display: none !important;
+    }
+
+    .stTabs [data-baseweb="tab-panel"] {
+        background-color: #ffffff;
+        border: 1px solid #dee2e6;
+        border-top: none;
+        border-radius: 0px 0px 8px 8px;
+        padding: 20px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        animation: slideDown 0.25s ease-out;
+    }
+
+    @keyframes slideDown {
+        from { opacity: 0; transform: translateY(-6px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
     .translated-box {
         background-color: #e8f5e9;
         border: 1px solid #c8e6c9;
@@ -128,7 +180,7 @@ if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
 if not st.session_state["authenticated"]:
-    st.title("🔒 Đăng nhập Hệ thống Cabin Phiên dịch")
+    st.title("Đăng nhập Hệ thống Cabin Phiên dịch")
     pwd_input = st.text_input("Nhập mật khẩu truy cập:", type="password")
     if st.button("Đăng nhập"):
         if pwd_input:
@@ -136,10 +188,11 @@ if not st.session_state["authenticated"]:
             st.rerun()
     st.stop()
 
+# Thanh menu Tab đã loại bỏ toàn bộ emoji/biểu tượng
 tab1, tab2, tab3 = st.tabs([
-    "💬 Dịch văn bản & Hội thoại", 
-    "🎙 Cabin Phiên dịch Trực tiếp",
-    "🎓 Học Tiếng Anh cùng AI"
+    "Dịch văn bản & Hội thoại", 
+    "Cabin Phiên dịch Trực tiếp",
+    "Học Tiếng Anh cùng AI"
 ])
 
 # ==============================================================================
@@ -189,12 +242,12 @@ with tab1:
                 with open(audio_file, "rb") as f:
                     audio_bytes = f.read()
                 st.audio(audio_bytes, format="audio/mp3")
-                st.download_button("📥 Tải xuống file MP3", data=audio_bytes, file_name="phien_dich_ai.mp3", mime="audio/mp3", key="download_mp3_btn")
+                st.download_button("Tải xuống file MP3", data=audio_bytes, file_name="phien_dich_ai.mp3", mime="audio/mp3", key="download_mp3_btn")
             except Exception:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (DÙNG CHUỖI THƯỜNG AN TOÀN CÚ PHÁP)
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP
 # ==============================================================================
 with tab2:
     st.subheader("Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
@@ -219,9 +272,9 @@ with tab2:
         <style>
             .cabin-box { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 12px; padding: 15px; text-align: center; }
             .btn-control { font-family: 'Times New Roman', Times, serif !important; padding: 12px 24px; font-size: 14px !important; font-weight: bold; border-radius: 8px; border: none; cursor: pointer; margin: 5px; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-            .btn-start { background-color: #28a745; }
+            .btn-start { background-color: #0d6efd; }
             .btn-stop { background-color: #dc3545; }
-            #status-badge { font-family: 'Times New Roman', Times, serif !important; margin-top: 10px; font-weight: bold; font-size: 13px !important; color: #28a745; }
+            #status-badge { font-family: 'Times New Roman', Times, serif !important; margin-top: 10px; font-weight: bold; font-size: 13px !important; color: #0d6efd; }
             .cabin-grid { display: flex; flex-direction: row; gap: 15px; margin-top: 15px; }
             .cabin-panel { flex: 1; background: #ffffff; border: 1px solid #ced4da; border-radius: 8px; padding: 15px; text-align: left; height: 500px; overflow-y: auto; box-shadow: inset 0 0 5px rgba(0,0,0,0.05); }
             .panel-title { font-family: 'Times New Roman', Times, serif !important; font-weight: bold; font-size: 14px !important; margin-bottom: 10px; border-bottom: 1px solid #e9ecef; padding-bottom: 5px; }
@@ -297,7 +350,7 @@ with tab2:
             }
             let idx = origSegments.length;
             origSegments.push(cleanOrig);
-            transSegments.push("[⚡...]");
+            transSegments.push("[Đang dịch...]");
             currentSpeechBuffer = "";
             renderUI("", "");
 
@@ -320,8 +373,8 @@ with tab2:
             for (let i = 0; i < origSegments.length; i++) {
                 origHTML += "<span style='color: #0056b3; font-weight: 500; display: block; margin-bottom: 12px;'>" + origSegments[i] + "</span>";
                 let t = transSegments[i];
-                let color = t.includes("[⚡") ? "#888888" : "#28a745";
-                let weight = t.includes("[⚡") ? "normal" : "bold";
+                let color = t.includes("[Đang dịch") ? "#888888" : "#28a745";
+                let weight = t.includes("[Đang dịch") ? "normal" : "bold";
                 transHTML += "<span style='color: " + color + "; font-weight: " + weight + "; display: block; margin-bottom: 12px;'>" + t + "</span>";
             }
             let origBox = document.getElementById('live-original-text');
@@ -421,10 +474,10 @@ with tab2:
     components.html(cabin_html_code, height=750)
 
 # ==============================================================================
-# TAB 3: HỌC TIẾNG ANH CÙNG AI
+# TAB 3: HỌC TIẾNG ANH CÙNG AI (MENU XANH XỔ XUỐNG + VIDEO NGHE + TỪ VỰNG + NGỮ PHÁP)
 # ==============================================================================
 with tab3:
-    st.subheader("Trợ lý Học Tiếng Anh Thông minh (AI English Tutor)")
+    st.subheader("Hệ thống Học Tiếng Anh Tương tác cùng AI")
 
     english_tutor_html = """
     <!DOCTYPE html>
@@ -433,89 +486,534 @@ with tab3:
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f8f9fa; margin: 0; padding: 10px; color: #212529; }
-            .tutor-nav { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
-            .nav-btn { padding: 10px 18px; border: none; border-radius: 8px; background-color: #e9ecef; color: #495057; font-weight: bold; cursor: pointer; font-size: 14px; transition: 0.2s; }
-            .nav-btn.active { background-color: #0d6efd; color: white; box-shadow: 0 2px 5px rgba(13,110,253,0.3); }
-            .section-card { background: #ffffff; border: 1px solid #dee2e6; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); display: none; }
-            .section-card.active { display: block; }
-            .input-group { display: flex; gap: 10px; margin-bottom: 15px; }
-            input[type="text"], select { flex: 1; padding: 10px 14px; border: 1px solid #ced4da; border-radius: 8px; font-size: 15px; }
-            .action-btn { padding: 10px 20px; border: none; border-radius: 8px; background-color: #198754; color: white; font-weight: bold; cursor: pointer; font-size: 14px; }
-            .speak-btn { background-color: #0dcaf0; color: #000; border: none; border-radius: 6px; padding: 6px 12px; font-weight: bold; cursor: pointer; font-size: 13px; margin-left: 8px; }
-            .word-header { font-size: 24px; font-weight: bold; color: #0d6efd; margin-bottom: 5px; }
-            .phonetic { color: #6c757d; font-size: 16px; font-family: monospace; margin-bottom: 12px; }
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                background-color: #f4f6f9;
+                margin: 0;
+                padding: 12px;
+                color: #212529;
+            }
+            /* Thanh Menu xanh đồng bộ, hiệu ứng xổ xuống khi chọn */
+            .blue-menu-bar {
+                display: flex;
+                background-color: #0d6efd;
+                border-radius: 8px;
+                padding: 5px;
+                gap: 6px;
+                margin-bottom: 15px;
+                box-shadow: 0 3px 8px rgba(13, 110, 253, 0.25);
+                flex-wrap: wrap;
+            }
+            .menu-item {
+                flex: 1;
+                min-width: 160px;
+                padding: 12px 15px;
+                border: none;
+                border-radius: 6px;
+                background-color: transparent;
+                color: #ffffff;
+                font-weight: bold;
+                cursor: pointer;
+                font-size: 14px;
+                text-align: center;
+                transition: all 0.25s ease;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            .menu-item:hover {
+                background-color: rgba(255, 255, 255, 0.2);
+            }
+            .menu-item.active {
+                background-color: #ffffff;
+                color: #0d6efd;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+            }
+            .arrow-icon {
+                font-size: 11px;
+                transition: transform 0.25s ease;
+            }
+            .menu-item.active .arrow-icon {
+                transform: rotate(180deg);
+            }
+
+            /* Hiệu ứng xổ xuống cho nội dung từng mục */
+            .dropdown-panel {
+                background: #ffffff;
+                border: 1px solid #cfe2ff;
+                border-top: 4px solid #0d6efd;
+                border-radius: 8px;
+                padding: 20px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+                display: none;
+                animation: expandPanel 0.3s ease-out;
+            }
+            .dropdown-panel.active {
+                display: block;
+            }
+            @keyframes expandPanel {
+                from { opacity: 0; transform: translateY(-10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+
+            .input-group { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+            input[type="text"], select {
+                flex: 1;
+                min-width: 200px;
+                padding: 10px 14px;
+                border: 1px solid #ced4da;
+                border-radius: 6px;
+                font-size: 14px;
+            }
+            .btn-blue {
+                padding: 10px 18px;
+                border: none;
+                border-radius: 6px;
+                background-color: #0d6efd;
+                color: white;
+                font-weight: bold;
+                cursor: pointer;
+                font-size: 13px;
+                transition: 0.2s;
+            }
+            .btn-blue:hover { background-color: #0b5ed7; }
+            .btn-outline-blue {
+                padding: 8px 14px;
+                border: 1px solid #0d6efd;
+                border-radius: 6px;
+                background-color: #ffffff;
+                color: #0d6efd;
+                font-weight: bold;
+                cursor: pointer;
+                font-size: 13px;
+            }
+            .btn-outline-blue:hover { background-color: #e7f1ff; }
+            .btn-dark-blue {
+                padding: 8px 14px;
+                border: none;
+                border-radius: 6px;
+                background-color: #084298;
+                color: #ffffff;
+                font-weight: bold;
+                cursor: pointer;
+                font-size: 13px;
+            }
+
+            /* Khu vực Video & Luyện nghe */
+            .video-layout {
+                display: flex;
+                gap: 20px;
+                flex-wrap: wrap;
+            }
+            .video-main {
+                flex: 1.3;
+                min-width: 300px;
+            }
+            .video-sidebar {
+                flex: 1;
+                min-width: 280px;
+                background: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 8px;
+                padding: 15px;
+                max-height: 560px;
+                overflow-y: auto;
+            }
+            .media-screen {
+                background: linear-gradient(135deg, #0a2540 0%, #0d6efd 100%);
+                color: white;
+                border-radius: 10px;
+                padding: 25px 20px;
+                text-align: center;
+                position: relative;
+                box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+            }
+            .wave-bars {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                gap: 5px;
+                height: 36px;
+                margin-bottom: 12px;
+            }
+            .bar {
+                width: 5px;
+                height: 12px;
+                background: #6ea8fe;
+                border-radius: 3px;
+                transition: height 0.2s;
+            }
+            .playing .bar {
+                animation: soundWave 0.6s infinite alternate;
+            }
+            .playing .bar:nth-child(2) { animation-delay: 0.1s; }
+            .playing .bar:nth-child(3) { animation-delay: 0.2s; }
+            .playing .bar:nth-child(4) { animation-delay: 0.3s; }
+            .playing .bar:nth-child(5) { animation-delay: 0.4s; }
+            @keyframes soundWave {
+                from { height: 8px; background: #6ea8fe; }
+                to { height: 34px; background: #ffffff; }
+            }
+
+            .subtitle-box {
+                background: rgba(0, 0, 0, 0.45);
+                border-radius: 8px;
+                padding: 15px;
+                margin-top: 15px;
+                min-height: 85px;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+            }
+            .sub-en { font-size: 16px; font-weight: bold; color: #ffffff; line-height: 1.5; }
+            .sub-vi { font-size: 14px; color: #cfe2ff; margin-top: 6px; font-style: italic; }
+            .sub-hidden { filter: blur(6px); user-select: none; opacity: 0.4; }
+
+            .controls-row {
+                display: flex;
+                gap: 8px;
+                justify-content: center;
+                margin-top: 15px;
+                flex-wrap: wrap;
+            }
+
+            .vocab-card {
+                background: #ffffff;
+                border-left: 4px solid #0d6efd;
+                border-radius: 6px;
+                padding: 10px 12px;
+                margin-bottom: 10px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+            }
+            .grammar-card {
+                background: #e7f1ff;
+                border: 1px solid #b6d4fe;
+                border-radius: 6px;
+                padding: 12px;
+                margin-top: 12px;
+            }
+
+            /* Từ điển & Chấm điểm */
+            .word-header { font-size: 22px; font-weight: bold; color: #0d6efd; margin-bottom: 4px; }
+            .phonetic { color: #6c757d; font-size: 15px; font-family: monospace; margin-bottom: 10px; }
             .meaning-box { background: #f1f8ff; border-left: 4px solid #0d6efd; padding: 12px; border-radius: 6px; margin-bottom: 12px; }
-            .sample-sentence-box { background: #fff3cd; border: 1px solid #ffe69c; padding: 15px; border-radius: 8px; font-size: 18px; font-weight: 500; margin-bottom: 15px; line-height: 1.5; }
-            .score-circle { display: inline-block; padding: 8px 16px; border-radius: 20px; font-weight: bold; font-size: 16px; margin-top: 10px; }
+            .sample-sentence-box { background: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; border-radius: 8px; font-size: 17px; font-weight: 500; margin-bottom: 15px; line-height: 1.5; }
+            .score-circle { display: inline-block; padding: 8px 16px; border-radius: 20px; font-weight: bold; font-size: 15px; margin-top: 10px; }
             .word-correct { color: #198754; font-weight: bold; }
             .word-wrong { color: #dc3545; text-decoration: line-through; }
-            .chat-window { height: 320px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 8px; padding: 15px; background: #fdfdfd; margin-bottom: 12px; }
+            .chat-window { height: 300px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 8px; padding: 15px; background: #fdfdfd; margin-bottom: 12px; }
             .msg-user { background: #0d6efd; color: white; padding: 10px 14px; border-radius: 14px 14px 2px 14px; max-width: 80%; margin-left: auto; margin-bottom: 10px; font-size: 14px; }
             .msg-ai { background: #e9ecef; color: #212529; padding: 10px 14px; border-radius: 14px 14px 14px 2px; max-width: 85%; margin-right: auto; margin-bottom: 10px; font-size: 14px; line-height: 1.5; }
         </style>
     </head>
     <body>
-        <div class="tutor-nav">
-            <button class="nav-btn active" onclick="switchTab('dict', this)">📖 Từ điển AI & Phát âm</button>
-            <button class="nav-btn" onclick="switchTab('speak', this)">🎤 Luyện Nói & Chấm điểm</button>
-            <button class="nav-btn" onclick="switchTab('chat', this)">🤖 Gia sư Hội thoại Song ngữ</button>
+        <!-- THANH MENU MÀU XANH XỔ XUỐNG KHÔNG EMOJI -->
+        <div class="blue-menu-bar">
+            <button class="menu-item active" onclick="openPanel('video', this)">
+                <span>Xem Video & Luyện Nghe</span>
+                <span class="arrow-icon">▼</span>
+            </button>
+            <button class="menu-item" onclick="openPanel('dict', this)">
+                <span>Từ điển AI & Phát âm</span>
+                <span class="arrow-icon">▼</span>
+            </button>
+            <button class="menu-item" onclick="openPanel('speak', this)">
+                <span>Luyện Nói & Chấm điểm</span>
+                <span class="arrow-icon">▼</span>
+            </button>
+            <button class="menu-item" onclick="openPanel('chat', this)">
+                <span>Gia sư Hội thoại Song ngữ</span>
+                <span class="arrow-icon">▼</span>
+            </button>
         </div>
 
-        <div id="sec-dict" class="section-card active">
+        <!-- PANEL 1: XEM VIDEO / NGHE HỘI THOẠI + TỪ VỰNG + NGỮ PHÁP LIÊN QUAN -->
+        <div id="panel-video" class="dropdown-panel active">
+            <div class="input-group">
+                <select id="video-topic-select" onchange="changeVideoLesson()">
+                    <option value="biostat">Chủ đề 1: Thống kê Y sinh & Nghiên cứu Lâm sàng</option>
+                    <option value="conference">Chủ đề 2: Báo cáo tại Hội nghị Khoa học Quốc tế</option>
+                    <option value="admin">Chủ đề 3: Điều hành & Quản trị Chuyển đổi số</option>
+                </select>
+                <button class="btn-outline-blue" onclick="nextClipInTopic()">Chuyển đoạn hội thoại khác</button>
+            </div>
+
+            <div class="video-layout">
+                <!-- Cột trái: Trình phát Video / Hội thoại -->
+                <div class="video-main">
+                    <div class="media-screen" id="media-player-box">
+                        <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #9ec5fe; margin-bottom: 8px;" id="clip-badge">
+                            BÀI NGHE THỰC TẾ 01
+                        </div>
+                        <div class="wave-bars" id="wave-indicator">
+                            <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+                        </div>
+                        <div style="font-size: 13px; color: #e2e3e5;" id="player-status">Sẵn sàng phát nội dung bài nghe</div>
+
+                        <div class="subtitle-box" id="subtitle-container">
+                            <div class="sub-en" id="clip-en"></div>
+                            <div class="sub-vi" id="clip-vi"></div>
+                        </div>
+
+                        <div class="controls-row">
+                            <button class="btn-blue" style="background-color: #198754;" onclick="playCurrentClip(1.0)">Nghe bình thường (1.0x)</button>
+                            <button class="btn-dark-blue" onclick="playCurrentClip(0.65)">Nghe chậm (0.65x)</button>
+                            <button class="btn-blue" style="background-color: #dc3545;" onclick="stopClip()">Dừng phát</button>
+                            <button class="btn-outline-blue" id="btn-toggle-sub" onclick="toggleSubtitle()">Ẩn phụ đề</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Cột phải: Đề xuất Từ vựng & Ngữ pháp liên quan -->
+                <div class="video-sidebar">
+                    <div style="font-weight: bold; color: #0d6efd; font-size: 15px; margin-bottom: 10px; border-bottom: 1px solid #dee2e6; padding-bottom: 6px;">
+                        Từ vựng trọng tâm trong bài
+                    </div>
+                    <div id="related-vocab-list"></div>
+
+                    <div style="font-weight: bold; color: #084298; font-size: 15px; margin-top: 16px; margin-bottom: 8px; border-bottom: 1px solid #dee2e6; padding-bottom: 6px;">
+                        Chủ điểm Ngữ pháp liên quan
+                    </div>
+                    <div id="related-grammar-box"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PANEL 2: TỪ ĐIỂN AI & PHÁT ÂM -->
+        <div id="panel-dict" class="dropdown-panel">
             <div class="input-group">
                 <input type="text" id="dict-input" placeholder="Nhập từ vựng hoặc thuật ngữ tiếng Anh (VD: epidemiology, hypothesis)..." onkeypress="if(event.key==='Enter') lookupWord()">
-                <button class="action-btn" onclick="lookupWord()">Tra cứu</button>
+                <button class="btn-blue" onclick="lookupWord()">Tra cứu</button>
             </div>
             <div id="dict-result">
-                <p style="color: #6c757d; font-style: italic;">Nhập một từ tiếng Anh bất kỳ để xem nghĩa tiếng Việt, phiên âm quốc tế (IPA), ví dụ ngữ cảnh và nghe giọng đọc bản xứ.</p>
+                <p style="color: #6c757d; font-style: italic;">Nhập một từ tiếng Anh bất kỳ để xem nghĩa tiếng Việt, phiên âm quốc tế (IPA), ví dụ ngữ cảnh và nghe giọng đọc chuẩn.</p>
             </div>
         </div>
 
-        <div id="sec-speak" class="section-card">
+        <!-- PANEL 3: LUYỆN NÓI & CHẤM ĐIỂM PHÁT ÂM -->
+        <div id="panel-speak" class="dropdown-panel">
             <div class="input-group">
                 <select id="topic-select" onchange="loadNextSentence()">
                     <option value="medical">Chủ đề: Y khoa & Nghiên cứu Khoa học</option>
                     <option value="academic">Chủ đề: Hội thảo & Thuyết trình Quốc tế</option>
                     <option value="daily">Chủ đề: Giao tiếp Công việc & Đời sống</option>
                 </select>
-                <button class="action-btn" style="background-color: #6c757d;" onclick="loadNextSentence()">Đổi câu khác ↻</button>
+                <button class="btn-outline-blue" onclick="loadNextSentence()">Đổi câu mẫu khác</button>
             </div>
             <div class="sample-sentence-box">
-                <div style="font-size: 12px; color: #664d03; margin-bottom: 4px;">CÂU MẪU LUYỆN ĐỌC:</div>
+                <div style="font-size: 12px; color: #0d6efd; font-weight: bold; margin-bottom: 4px;">CÂU MẪU LUYỆN ĐỌC:</div>
                 <span id="target-sentence">Statistical thinking is essential for evidence-based medical research.</span>
-                <button class="speak-btn" onclick="speakText(document.getElementById('target-sentence').innerText, 0.9)">🔊 Nghe mẫu</button>
-                <button class="speak-btn" style="background-color: #ffc107;" onclick="speakText(document.getElementById('target-sentence').innerText, 0.6)">🐢 Nghe chậm</button>
-                <div id="target-vi" style="font-size: 14px; color: #555; margin-top: 6px; font-weight: normal; font-style: italic;">
+                <div style="margin-top: 10px;">
+                    <button class="btn-blue" onclick="speakText(document.getElementById('target-sentence').innerText, 0.95)">Nghe mẫu chuẩn</button>
+                    <button class="btn-outline-blue" onclick="speakText(document.getElementById('target-sentence').innerText, 0.65)">Nghe chậm</button>
+                </div>
+                <div id="target-vi" style="font-size: 14px; color: #555; margin-top: 8px; font-weight: normal; font-style: italic;">
                     (Tư duy thống kê là yếu tố thiết yếu cho nghiên cứu y học dựa trên bằng chứng.)
                 </div>
             </div>
-            <button id="btn-record-eval" class="action-btn" style="background-color: #dc3545; width: 100%; padding: 14px; font-size: 15px;" onclick="startPronunciationCheck()">
-                🎙 BẤM ĐỂ ĐỌC CÂU TRÊN VÀ CHẤM ĐIỂM AI
+            <button id="btn-record-eval" class="btn-blue" style="width: 100%; padding: 13px; font-size: 14px;" onclick="startPronunciationCheck()">
+                BẤM ĐỂ ĐỌC CÂU TRÊN VÀ CHẤM ĐIỂM AI
             </button>
             <div id="speak-feedback" style="margin-top: 15px;"></div>
         </div>
 
-        <div id="sec-chat" class="section-card">
+        <!-- PANEL 4: GIA SƯ HỘI THOẠI SONG NGỮ -->
+        <div id="panel-chat" class="dropdown-panel">
             <div class="chat-window" id="chat-box">
                 <div class="msg-ai">
-                    <b>AI English Tutor:</b> Hello! Nhập một câu tiếng Việt bạn muốn diễn đạt sang tiếng Anh tự nhiên, hoặc viết một câu tiếng Anh để tôi kiểm tra ngữ pháp và gợi ý cách diễn đạt học thuật hơn nhé!
+                    <b>AI English Tutor:</b> Xin chào! Hãy nhập một câu tiếng Việt bạn muốn diễn đạt sang tiếng Anh tự nhiên, hoặc viết một câu tiếng Anh để tôi kiểm tra ngữ pháp và gợi ý cách diễn đạt học thuật hơn.
                 </div>
             </div>
             <div class="input-group">
                 <input type="text" id="chat-input" placeholder="Nhập câu tiếng Việt cần diễn đạt hoặc câu tiếng Anh cần sửa..." onkeypress="if(event.key==='Enter') sendTutorMessage()">
-                <button class="action-btn" onclick="sendTutorMessage()">Gửi AI</button>
+                <button class="btn-blue" onclick="sendTutorMessage()">Gửi AI</button>
             </div>
         </div>
 
         <script>
-            function switchTab(tabId, btn) {
-                document.querySelectorAll('.section-card').forEach(el => el.classList.remove('active'));
-                document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
-                document.getElementById('sec-' + tabId).classList.add('active');
+            // Điều khiển Menu xanh xổ xuống
+            function openPanel(panelId, btn) {
+                document.querySelectorAll('.dropdown-panel').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
+                document.getElementById('panel-' + panelId).classList.add('active');
                 btn.classList.add('active');
+                stopClip();
             }
 
+            // Dữ liệu bài học Video / Hội thoại kèm Từ vựng & Ngữ pháp liên quan
+            const LESSON_DATA = {
+                biostat: [
+                    {
+                        en: "In biomedical research, selecting an appropriate statistical test is crucial to avoid false-positive conclusions and ensure the validity of clinical findings.",
+                        vi: "Trong nghiên cứu y sinh, việc lựa chọn kiểm định thống kê phù hợp là rất quan trọng để tránh các kết luận dương tính giả và đảm bảo tính giá trị của các phát hiện lâm sàng.",
+                        vocab: [
+                            { word: "biomedical", ipa: "/ˌbaɪ.oʊˈmed.ɪ.kəl/", mean: "thuộc về y sinh học" },
+                            { word: "crucial", ipa: "/ˈkruː.ʃəl/", mean: "quan trọng, cốt yếu" },
+                            { word: "false-positive", ipa: "/ˌfɔːls ˈpɑː.zə.tɪv/", mean: "dương tính giả" },
+                            { word: "validity", ipa: "/vəˈlɪd.ə.t̬i/", mean: "tính giá trị, độ xác thực" }
+                        ],
+                        grammar: {
+                            title: "Cấu trúc Danh động từ (Gerund) làm chủ ngữ & Mệnh đề chỉ mục đích",
+                            rule: "V-ing (Selecting...) + is + Adj + to V-infinitive (to avoid...)",
+                            example: "Selecting the right sample size is essential to achieve adequate statistical power."
+                        }
+                    },
+                    {
+                        en: "Although multivariate logistic regression adjusts for potential confounding variables, researchers must still verify the goodness-of-fit of the final model.",
+                        vi: "Mặc dù hồi quy logistic đa biến hiệu chỉnh cho các biến gây nhiễu tiềm ẩn, các nhà nghiên cứu vẫn phải kiểm tra độ phù hợp của mô hình cuối cùng.",
+                        vocab: [
+                            { word: "multivariate", ipa: "/ˌmʌl.tiˈver.i.ət/", mean: "đa biến" },
+                            { word: "confounding variable", ipa: "/kənˈfaʊn.dɪŋ ˈver.i.ə.bəl/", mean: "biến gây nhiễu" },
+                            { word: "goodness-of-fit", ipa: "/ˌɡʊd.nəs əv ˈfɪt/", mean: "độ phù hợp của mô hình" }
+                        ],
+                        grammar: {
+                            title: "Mệnh đề nhượng bộ với Although & Động từ khuyết thiếu Must",
+                            rule: "Although + S + V, S + must + V-bare",
+                            example: "Although the p-value is significant, we must evaluate the clinical relevance."
+                        }
+                    }
+                ],
+                conference: [
+                    {
+                        en: "Distinguished guests and colleagues, it is my great honor to present our institution's latest longitudinal study on chronic disease management.",
+                        vi: "Kính thưa quý vị đại biểu và các đồng nghiệp, tôi rất vinh dự được trình bày nghiên cứu theo dõi dọc mới nhất của đơn vị chúng tôi về quản lý bệnh mạn tính.",
+                        vocab: [
+                            { word: "distinguished", ipa: "/dɪˈstɪŋ.ɡwɪʃt/", mean: "ưu tú, lỗi lạc, kính mến" },
+                            { word: "longitudinal study", ipa: "/ˌlɑːn.dʒəˈtuː.dən.əl ˈstʌd.i/", mean: "nghiên cứu theo dõi dọc" },
+                            { word: "chronic", ipa: "/ˈkrɑː.nɪk/", mean: "mạn tính, kéo dài" }
+                        ],
+                        grammar: {
+                            title: "Chủ ngữ giả 'It' trong văn phong trang trọng hội nghị",
+                            rule: "It is + my great honor / a privilege + to V-infinitive",
+                            example: "It is a privilege to welcome international scholars to our university."
+                        }
+                    }
+                ],
+                admin: [
+                    {
+                        en: "Implementing a centralized data governance framework allows the university to streamline administrative workflows and enhance decision-making efficiency.",
+                        vi: "Việc triển khai khung quản trị dữ liệu tập trung cho phép trường đại học tinh gọn quy trình hành chính và nâng cao hiệu quả ra quyết định.",
+                        vocab: [
+                            { word: "centralized", ipa: "/ˈsen.trə.laɪzd/", mean: "tập trung hóa" },
+                            { word: "governance", ipa: "/ˈɡʌv.ɚ.nəns/", mean: "sự quản trị, điều hành" },
+                            { word: "streamline", ipa: "/ˈstriːm.laɪn/", mean: "tinh gọn, hợp lý hóa" }
+                        ],
+                        grammar: {
+                            title: "Cấu trúc cho phép / tạo điều kiện (Allow + Object + to V)",
+                            rule: "S + allow(s) + O + to V1 + and + V2",
+                            example: "Digital transformation allows staff to save time and reduce paperwork."
+                        }
+                    }
+                ]
+            };
+
+            let currentTopicKey = "biostat";
+            let currentClipIndex = 0;
+            let isSubVisible = true;
+
+            function renderVideoLesson() {
+                let clips = LESSON_DATA[currentTopicKey];
+                let clip = clips[currentClipIndex];
+                
+                document.getElementById('clip-badge').innerText = `BÀI NGHE THỰC TẾ 0${currentClipIndex + 1} / 0${clips.length}`;
+                document.getElementById('clip-en').innerText = clip.en;
+                document.getElementById('clip-vi').innerText = clip.vi;
+
+                // Render từ vựng liên quan
+                let vocabHtml = "";
+                clip.vocab.forEach(v => {
+                    vocabHtml += `
+                        <div class="vocab-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="font-weight:bold; color:#0d6efd; font-size:15px;">${v.word}</span>
+                                <button class="btn-outline-blue" style="padding:3px 8px; font-size:11px;" onclick="speakText('${v.word}', 0.9)">Nghe</button>
+                            </div>
+                            <div style="font-family:monospace; color:#6c757d; font-size:12px;">${v.ipa}</div>
+                            <div style="color:#212529; font-size:13px; margin-top:3px;">Nghĩa: <b>${v.mean}</b></div>
+                        </div>
+                    `;
+                });
+                document.getElementById('related-vocab-list').innerHTML = vocabHtml;
+
+                // Render ngữ pháp liên quan
+                document.getElementById('related-grammar-box').innerHTML = `
+                    <div class="grammar-card">
+                        <div style="font-weight:bold; color:#084298; font-size:14px; margin-bottom:5px;">${clip.grammar.title}</div>
+                        <div style="background:#ffffff; padding:6px 8px; border-radius:4px; font-family:monospace; font-size:12px; color:#d63384; margin-bottom:6px;">
+                            ${clip.grammar.rule}
+                        </div>
+                        <div style="font-size:13px; color:#333;">
+                            <b>Ví dụ mở rộng:</b> <i>"${clip.grammar.example}"</i>
+                            <button class="btn-outline-blue" style="padding:2px 7px; font-size:11px; margin-left:5px;" onclick="speakText('${clip.grammar.example}', 0.95)">Nghe</button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            function changeVideoLesson() {
+                stopClip();
+                currentTopicKey = document.getElementById('video-topic-select').value;
+                currentClipIndex = 0;
+                renderVideoLesson();
+            }
+
+            function nextClipInTopic() {
+                stopClip();
+                let clips = LESSON_DATA[currentTopicKey];
+                currentClipIndex = (currentClipIndex + 1) % clips.length;
+                renderVideoLesson();
+            }
+
+            function playCurrentClip(rate) {
+                let text = document.getElementById('clip-en').innerText;
+                let wave = document.getElementById('wave-indicator');
+                let status = document.getElementById('player-status');
+                
+                if ('speechSynthesis' in window) {
+                    window.speechSynthesis.cancel();
+                    let utterance = new SpeechSynthesisUtterance(text);
+                    utterance.lang = 'en-US';
+                    utterance.rate = rate;
+                    
+                    utterance.onstart = function() {
+                        wave.classList.add('playing');
+                        status.innerText = rate === 1.0 ? "Đang phát tốc độ chuẩn (1.0x)..." : "Đang phát tốc độ chậm (0.65x) để luyện nghe rõ từng âm...";
+                    };
+                    utterance.onend = function() {
+                        wave.classList.remove('playing');
+                        status.innerText = "Đã phát xong đoạn hội thoại.";
+                    };
+                    window.speechSynthesis.speak(utterance);
+                }
+            }
+
+            function stopClip() {
+                if ('speechSynthesis' in window) {
+                    window.speechSynthesis.cancel();
+                }
+                let wave = document.getElementById('wave-indicator');
+                let status = document.getElementById('player-status');
+                if (wave) wave.classList.remove('playing');
+                if (status) status.innerText = "Đã dừng phát.";
+            }
+
+            function toggleSubtitle() {
+                isSubVisible = !isSubVisible;
+                let subBox = document.getElementById('subtitle-container');
+                let btn = document.getElementById('btn-toggle-sub');
+                if (isSubVisible) {
+                    subBox.classList.remove('sub-hidden');
+                    btn.innerText = "Ẩn phụ đề";
+                } else {
+                    subBox.classList.add('sub-hidden');
+                    btn.innerText = "Hiện phụ đề";
+                }
+            }
+
+            // Khởi tạo bài nghe đầu tiên khi mở trang
+            renderVideoLesson();
+
+            // Hàm đọc chung
             function speakText(text, rate = 1.0) {
                 if ('speechSynthesis' in window) {
                     window.speechSynthesis.cancel();
@@ -537,6 +1035,7 @@ with tab3:
                 return "";
             }
 
+            // Panel 2: Từ điển
             async function lookupWord() {
                 let word = document.getElementById('dict-input').value.trim();
                 if (!word) return;
@@ -553,14 +1052,15 @@ with tab3:
                         phonetic = entry.phonetic || (entry.phonetics.find(p => p.text) || {}).text || "";
                         entry.meanings.slice(0, 2).forEach(m => {
                             let def = m.definitions[0];
-                            defHtml += `<div style="margin-bottom: 8px;"><span style="background:#e2e3e5; padding:2px 6px; border-radius:4px; font-size:12px; font-weight:bold;">${m.partOfSpeech}</span><span> ${def.definition}</span>${def.example ? `<div style="color:#198754; font-style:italic; margin-top:3px;">VD: "${def.example}"</div>` : ''}</div>`;
+                            defHtml += `<div style="margin-bottom: 8px;"><span style="background:#e7f1ff; color:#0d6efd; padding:2px 6px; border-radius:4px; font-size:12px; font-weight:bold;">${m.partOfSpeech}</span><span> ${def.definition}</span>${def.example ? `<div style="color:#084298; font-style:italic; margin-top:3px;">Ví dụ: "${def.example}"</div>` : ''}</div>`;
                         });
                     }
                 } catch(e) {}
-                resDiv.innerHTML = `<div class="word-header">${word} <button class="speak-btn" onclick="speakText('${word.replace(/'/g, "\\'")}', 0.95)">🔊 Đọc chuẩn</button><button class="speak-btn" style="background:#ffc107;" onclick="speakText('${word.replace(/'/g, "\\'")}', 0.6)">🐢 Đọc chậm</button></div>${phonetic ? `<div class="phonetic">${phonetic}</div>` : ''}<div class="meaning-box"><b>Nghĩa tiếng Việt:</b> <span style="font-size:17px; color:#0d6efd; font-weight:bold;">${viMeaning}</span></div>${defHtml ? `<div><b>Giải nghĩa & Ngữ cảnh Anh - Anh:</b><div style="margin-top:8px;">${defHtml}</div></div>` : ''}`;
+                resDiv.innerHTML = `<div class="word-header">${word} <button class="btn-blue" style="padding:5px 12px; font-size:12px;" onclick="speakText('${word.replace(/'/g, "\\'")}', 0.95)">Đọc chuẩn</button> <button class="btn-outline-blue" style="padding:5px 12px; font-size:12px;" onclick="speakText('${word.replace(/'/g, "\\'")}', 0.65)">Đọc chậm</button></div>${phonetic ? `<div class="phonetic">${phonetic}</div>` : ''}<div class="meaning-box"><b>Nghĩa tiếng Việt:</b> <span style="font-size:16px; color:#0d6efd; font-weight:bold;">${viMeaning}</span></div>${defHtml ? `<div><b>Giải nghĩa & Ngữ cảnh Anh - Anh:</b><div style="margin-top:8px;">${defHtml}</div></div>` : ''}`;
                 speakText(word, 0.95);
             }
 
+            // Panel 3: Luyện nói & Chấm điểm
             const SENTENCE_BANK = {
                 medical: [
                     { en: "Statistical thinking is essential for evidence-based medical research.", vi: "Tư duy thống kê là yếu tố thiết yếu cho nghiên cứu y học dựa trên bằng chứng." },
@@ -594,11 +1094,11 @@ with tab3:
                 let targetText = document.getElementById('target-sentence').innerText;
                 let rec = new SpeechRecognition();
                 rec.lang = 'en-US';
-                btn.innerText = "🔴 ĐANG NGHE... HÃY ĐỌC TO CÂU MẪU...";
-                btn.style.backgroundColor = "#fd7e14";
+                btn.innerText = "ĐANG NGHE... HÃY ĐỌC TO CÂU MẪU...";
+                btn.style.backgroundColor = "#084298";
                 rec.onresult = function(event) { evaluateSpeech(targetText, event.results[0][0].transcript); };
                 rec.onerror = function(e) { document.getElementById('speak-feedback').innerHTML = `<div style="color:#dc3545;">Lỗi micro (${e.error}). Hãy thử lại!</div>`; };
-                rec.onend = function() { btn.innerText = "🎙 BẤM ĐỂ ĐỌC CÂU TRÊN VÀ CHẤM ĐIỂM AI"; btn.style.backgroundColor = "#dc3545"; };
+                rec.onend = function() { btn.innerText = "BẤM ĐỂ ĐỌC CÂU TRÊN VÀ CHẤM ĐIỂM AI"; btn.style.backgroundColor = "#0d6efd"; };
                 rec.start();
             }
 
@@ -612,11 +1112,12 @@ with tab3:
                     else { highlightedHtml += `<span class="word-wrong">${w}</span> `; }
                 });
                 let score = Math.round((matchCount / cleanTarget.length) * 100);
-                let badgeColor = score >= 80 ? "#d1e7dd; color:#0f5132" : (score >= 50 ? "#fff3cd; color:#664d03" : "#f8d7da; color:#842029");
+                let badgeColor = score >= 80 ? "#cfe2ff; color:#084298" : (score >= 50 ? "#fff3cd; color:#664d03" : "#f8d7da; color:#842029");
                 let comment = score >= 80 ? "Xuất sắc! Phát âm rất chuẩn xác." : (score >= 50 ? "Khá tốt! Chú ý các từ gạch đỏ." : "Cần luyện thêm! Hãy bấm 'Nghe chậm' và đọc lại.");
-                document.getElementById('speak-feedback').innerHTML = `<div style="background:#f8f9fa; border:1px solid #dee2e6; border-radius:8px; padding:15px;"><div><b>AI nghe được:</b> <i>"${spoken}"</i></div><div style="margin-top:8px;"><b>Đối chiếu:</b> ${highlightedHtml}</div><div class="score-circle" style="background:${badgeColor};">Điểm phát âm: ${score}/100</div><div style="margin-top:8px; font-size:14px;">💡 ${comment}</div></div>`;
+                document.getElementById('speak-feedback').innerHTML = `<div style="background:#f8f9fa; border:1px solid #dee2e6; border-radius:8px; padding:15px;"><div><b>AI nghe được:</b> <i>"${spoken}"</i></div><div style="margin-top:8px;"><b>Đối chiếu:</b> ${highlightedHtml}</div><div class="score-circle" style="background:${badgeColor};">Điểm phát âm: ${score}/100</div><div style="margin-top:8px; font-size:14px;"><b>Nhận xét:</b> ${comment}</div></div>`;
             }
 
+            // Panel 4: Gia sư hội thoại
             async function sendTutorMessage() {
                 let inputEl = document.getElementById('chat-input');
                 let text = inputEl.value.trim();
@@ -628,12 +1129,12 @@ with tab3:
                 let isVietnamese = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(text);
                 if (isVietnamese) {
                     let enTrans = await translateText(text, 'vi', 'en');
-                    chatBox.innerHTML += `<div class="msg-ai"><b>Diễn đạt Tiếng Anh tự nhiên:</b><br><span style="color:#0d6efd; font-weight:bold; font-size:15px;">"${enTrans}"</span> <button class="speak-btn" onclick="speakText('${enTrans.replace(/'/g, "\\'")}', 0.95)">🔊 Nghe</button></div>`;
+                    chatBox.innerHTML += `<div class="msg-ai"><b>Diễn đạt Tiếng Anh tự nhiên:</b><br><span style="color:#0d6efd; font-weight:bold; font-size:15px;">"${enTrans}"</span> <button class="btn-outline-blue" style="padding:3px 10px; font-size:12px;" onclick="speakText('${enTrans.replace(/'/g, "\\'")}', 0.95)">Nghe</button></div>`;
                     speakText(enTrans, 0.95);
                 } else {
                     let viMeaning = await translateText(text, 'en', 'vi');
                     let polishedEn = await translateText(viMeaning, 'vi', 'en');
-                    chatBox.innerHTML += `<div class="msg-ai"><b>Phân tích câu của bạn:</b><br>• <b>Nghĩa tiếng Việt:</b> ${viMeaning}<br>• <b>Gợi ý mượt hơn:</b> <span style="color:#198754; font-weight:bold;">"${polishedEn}"</span> <button class="speak-btn" onclick="speakText('${polishedEn.replace(/'/g, "\\'")}', 0.95)">🔊 Nghe mẫu</button></div>`;
+                    chatBox.innerHTML += `<div class="msg-ai"><b>Phân tích câu của bạn:</b><br>• <b>Nghĩa tiếng Việt:</b> ${viMeaning}<br>• <b>Gợi ý mượt hơn:</b> <span style="color:#084298; font-weight:bold;">"${polishedEn}"</span> <button class="btn-outline-blue" style="padding:3px 10px; font-size:12px;" onclick="speakText('${polishedEn.replace(/'/g, "\\'")}', 0.95)">Nghe mẫu</button></div>`;
                     speakText(polishedEn, 0.95);
                 }
                 chatBox.scrollTop = chatBox.scrollHeight;
@@ -642,4 +1143,4 @@ with tab3:
     </body>
     </html>
     """
-    components.html(english_tutor_html, height=620)
+    components.html(english_tutor_html, height=680)
