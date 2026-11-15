@@ -3,6 +3,7 @@ import os
 import re
 import time
 import json
+import base64
 import asyncio
 import urllib.parse
 import urllib.request
@@ -38,7 +39,6 @@ st.markdown("""
         font-size: 13px !important;
     }
 
-    /* Đổi màu nút Primary mặc định của Streamlit từ đỏ sang xanh dương đồng bộ */
     button[kind="primary"] {
         background-color: #0d6efd !important;
         border-color: #0d6efd !important;
@@ -95,7 +95,7 @@ st.markdown("""
         border: 1px solid #dee2e6;
         border-top: none;
         border-radius: 0px 0px 8px 8px;
-        padding: 14px;
+        padding: 12px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.05);
     }
 
@@ -136,12 +136,6 @@ VOICE_MAP = {
     "us Nữ - Anh-Mỹ (Jenny - Truyền cảm)": "en-US-JennyNeural",
     "vn Nam - Tiếng Việt (Nam Minh)": "vi-VN-NamMinhNeural",
     "vn Nữ - Tiếng Việt (Hoài My)": "vi-VN-HoaiMyNeural"
-}
-
-SAMPLE_VIDEOS = {
-    "Hội nghị & Thảo luận học thuật": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-    "Du lịch, Sân bay & Giao thông": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-    "Công việc & Đời sống hàng ngày": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4"
 }
 
 # --- TAB 1 CORE (KHÓA CỨNG) ---
@@ -198,31 +192,44 @@ def create_mp3(text, voice_key, speed_rate, filename="translated_output.mp3"):
     except Exception:
         return False
 
-# --- TẠO AUDIO ĐA GIỌNG NAM/NỮ BẰNG EDGE-TTS ---
-async def build_dialogue_audio_async(turns, speed_rate=1.0, swap_gender=False):
-    percent = int((speed_rate - 1.0) * 100)
-    rate_str = f"+{percent}%" if percent >= 0 else f"{percent}%"
-    combined_bytes = bytearray()
+# --- TẠO AUDIO BASE64 TỪNG CÂU & TỪ VỰNG BẰNG EDGE-TTS (CHẠY TỨC THÌ TRÊN MỌI THIẾT BỊ) ---
+async def synth_single_b64_async(text, voice_id):
+    buf = bytearray()
+    communicate = edge_tts.Communicate(text, voice_id)
+    async for chunk in communicate.stream():
+        if chunk["type"] == "audio":
+            buf.extend(chunk["data"])
+    return base64.b64encode(bytes(buf)).decode("ascii")
 
-    for idx, turn in enumerate(turns):
-        gender = turn.get("gender", "male" if idx % 2 == 0 else "female").lower()
-        if swap_gender:
-            gender = "female" if gender == "male" else "male"
-        voice_id = "en-US-GuyNeural" if gender == "male" else "en-US-JennyNeural"
-        
-        communicate = edge_tts.Communicate(turn["en"], voice_id, rate=rate_str)
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                combined_bytes.extend(chunk["data"])
-    return bytes(combined_bytes)
+async def enrich_dialogue_audio_async(dlg_obj):
+    tasks = []
+    # Tạo audio cho từng câu hội thoại (Nam / Nữ riêng biệt)
+    for idx, t in enumerate(dlg_obj["turns"]):
+        g = t.get("gender", "male" if idx % 2 == 0 else "female")
+        vid = "en-US-GuyNeural" if g == "male" else "en-US-JennyNeural"
+        tasks.append(synth_single_b64_async(t["en"], vid))
+    # Tạo audio cho từng từ vựng
+    for v in dlg_obj.get("vocab", []):
+        tasks.append(synth_single_b64_async(v["word"], "en-US-JennyNeural"))
+    
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    n_turns = len(dlg_obj["turns"])
+    for idx in range(n_turns):
+        res = results[idx]
+        dlg_obj["turns"][idx]["audio_b64"] = res if isinstance(res, str) else ""
+    for v_idx in range(len(dlg_obj.get("vocab", []))):
+        res = results[n_turns + v_idx]
+        dlg_obj["vocab"][v_idx]["audio_b64"] = res if isinstance(res, str) else ""
+    return dlg_obj
 
 @st.cache_data(show_spinner=False, ttl=3600)
-def generate_dialogue_mp3_cached(turns_json_str, speed_rate=1.0, swap_gender=False):
+def attach_neural_audio_to_dialogue(dlg_json_str):
     try:
-        turns = json.loads(turns_json_str)
-        return asyncio.run(build_dialogue_audio_async(turns, speed_rate, swap_gender))
+        obj = json.loads(dlg_json_str)
+        enriched = asyncio.run(enrich_dialogue_audio_async(obj))
+        return json.dumps(enriched, ensure_ascii=False)
     except Exception:
-        return None
+        return dlg_json_str
 
 def extract_text_from_uploaded(uploaded_file):
     if uploaded_file is None:
@@ -268,7 +275,7 @@ def extract_text_from_uploaded(uploaded_file):
                     model="gemini-2.5-flash",
                     contents=[
                         types.Part.from_bytes(data=raw_bytes, mime_type="image/png"),
-                        "Nhận diện bối cảnh, quán xá/địa điểm và tình huống giao tiếp trong hình ảnh này bằng tiếng Việt ngắn gọn."
+                        "Mô tả ngắn gọn tình huống, địa điểm và bối cảnh trong hình ảnh này bằng tiếng Việt."
                     ]
                 )
                 text_content = resp.text.strip()
@@ -276,33 +283,76 @@ def extract_text_from_uploaded(uploaded_file):
                 pass
         if not text_content:
             clean_name = re.sub(r'[_\-\.]+', ' ', uploaded_file.name.rsplit('.', 1)[0])
-            text_content = f"Mua đồ uống và giao tiếp tại {clean_name}" if "starbucks" in clean_name.lower() or "coffee" in clean_name.lower() else f"Tình huống giao tiếp liên quan đến {clean_name}"
+            text_content = clean_name
     return text_content.strip()
 
-def smart_generate_dialogue(topic_text):
+def build_dialogue_payload(topic_text):
+    """Tạo kịch bản hội thoại chuẩn xác theo đúng chủ đề nhập vào (Logistic, t-test, Metro, Starbucks, Sân bay...)"""
     lower = topic_text.lower()
     is_vi = bool(re.search(r'[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]', topic_text, re.I))
     en_topic = translate_stable(topic_text, "vi", "en") if is_vi else topic_text
 
-    is_cafe = any(k in lower for k in ["starbucks", "coffee", "cà phê", "quán", "nhà hàng", "đồ uống", "order", "cafe", "tea", "trà"])
-    is_academic = any(k in lower for k in ["nghiên cứu", "hội nghị", "ai", "chẩn đoán", "y khoa", "thống kê", "t-test", "hồi quy", "dược", "lâm sàng", "luận án", "khoa học", "conference", "medical", "diagnosis", "research", "clinical"])
-    is_travel = any(k in lower for k in ["sân bay", "nhập cảnh", "hải quan", "metro", "tàu", "khách sạn", "du lịch", "máy bay", "visa", "airport", "immigration", "hotel", "station"])
-
-    if is_cafe:
-        vid_cat = "Công việc & Đời sống hàng ngày"
-        turns_en = [
-            ("Barista (Nhân viên pha chế)", "male", "Good morning! Welcome to Starbucks. What can I get started for you today?"),
-            ("Customer (Khách hàng)", "female", "Hi! Could I get a Grande Iced Caramel Macchiato with oat milk, please?"),
-            ("Barista (Nhân viên pha chế)", "male", "Sure thing. Would you like any whipped cream or extra espresso shot on that?"),
-            ("Customer (Khách hàng)", "female", "No whipped cream, please, and just regular sweetness. Also, do you have any seasonal holiday pastries?"),
-            ("Barista (Nhân viên pha chế)", "male", "Yes, we have freshly baked cranberry bliss bars and cinnamon rolls right here in the display case."),
-            ("Customer (Khách hàng)", "female", "I will take one cinnamon roll warmed up, please. Can I pay by contactless card?"),
-            ("Barista (Nhân viên pha chế)", "male", "Of course! Just tap your card on the reader. Your order will be ready at the pickup counter in two minutes."),
-            ("Customer (Khách hàng)", "female", "Thank you so much. Merry Christmas and have a wonderful day!")
+    # 1. Chuyên đề Hồi quy Logistic (Multivariate / Binary Logistic Regression)
+    if "logistic" in lower or "hồi quy" in lower:
+        scene_type = "academic"
+        turns_raw = [
+            ("Dr. Nam (Biostatistician)", "male", "Good morning. For your clinical study on treatment outcomes, why did you choose multivariate logistic regression instead of linear regression?", "Chào buổi sáng. Đối với nghiên cứu lâm sàng về kết cục điều trị của bạn, tại sao bạn chọn hồi quy logistic đa biến thay vì hồi quy tuyến tính?"),
+            ("Dr. Linh (Clinical Researcher)", "female", "Because our primary dependent variable is dichotomous: complete remission versus persistent symptoms. Linear regression is only appropriate for continuous outcomes.", "Bởi vì biến phụ thuộc chính của chúng tôi là biến nhị giá: lui bệnh hoàn toàn so với còn triệu chứng. Hồi quy tuyến tính chỉ phù hợp cho biến kết cục liên tục."),
+            ("Dr. Nam (Biostatistician)", "male", "That makes complete sense. How did you select the independent variables to include in the multivariate model?", "Điều đó hoàn toàn hợp lý. Bạn đã lựa chọn các biến độc lập để đưa vào mô hình đa biến như thế nào?"),
+            ("Dr. Linh (Clinical Researcher)", "female", "We first performed univariate screening, and any variable with a p-value below 0.20, along with clinically relevant confounders like age and baseline severity, was entered into the model.", "Trước tiên chúng tôi thực hiện sàng lọc đơn biến, và bất kỳ biến nào có trị số p dưới 0.20, cùng với các biến gây nhiễu có ý nghĩa lâm sàng như tuổi và mức độ nặng ban đầu, đều được đưa vào mô hình."),
+            ("Dr. Nam (Biostatistician)", "male", "How do you interpret the Adjusted Odds Ratio for your primary predictor in the final output?", "Bạn diễn giải Tỷ số chênh hiệu chỉnh (aOR) cho yếu tố tiên lượng chính trong bảng kết quả cuối cùng như thế nào?"),
+            ("Dr. Linh (Clinical Researcher)", "female", "The adjusted odds ratio is 2.45 with a 95% confidence interval from 1.32 to 4.54, meaning patients with this factor had 2.45 times higher odds of achieving remission after controlling for confounders.", "Tỷ số chênh hiệu chỉnh là 2.45 với khoảng tin cậy 95% từ 1.32 đến 4.54, nghĩa là bệnh nhân có yếu tố này có chênh đạt lui bệnh cao gấp 2.45 lần sau khi đã hiệu chỉnh các biến gây nhiễu."),
+            ("Dr. Nam (Biostatistician)", "male", "Did you also verify the model's calibration and discrimination using the Hosmer-Lemeshow test and ROC curve?", "Bạn cũng đã kiểm tra độ định chuẩn và khả năng phân biệt của mô hình bằng kiểm định Hosmer-Lemeshow và đường cong ROC chưa?"),
+            ("Dr. Linh (Clinical Researcher)", "female", "Yes, the Hosmer-Lemeshow p-value was 0.68 indicating good calibration, and the area under the ROC curve was 0.84.", "Rồi ạ, trị số p của kiểm định Hosmer-Lemeshow là 0.68 cho thấy độ phù hợp tốt, và diện tích dưới đường cong ROC đạt 0.84.")
+        ]
+        vocab_list = [
+            {"word": "logistic regression", "ipa": "/ləˈdʒɪs.tɪk rɪˈɡreʃ.ən/", "mean": "hồi quy logistic"},
+            {"word": "dichotomous", "ipa": "/daɪˈkɑː.t̬ə.məs/", "mean": "nhị giá (chỉ có 2 giá trị)"},
+            {"word": "adjusted odds ratio", "ipa": "/əˈdʒʌs.tɪd ɑːdz ˈreɪ.ʃoʊ/", "mean": "tỷ số chênh hiệu chỉnh (aOR)"},
+            {"word": "confounding variable", "ipa": "/kənˈfaʊn.dɪŋ ˈver.i.ə.bəl/", "mean": "biến gây nhiễu"}
+        ]
+        grammar_obj = {
+            "title": "Mệnh đề Phân từ Hiện tại (V-ing) diễn giải kết quả thống kê",
+            "rule": "The aOR is [Value], meaning + S + V (had X times higher odds of + V-ing)",
+            "example": "The adjusted odds ratio is 2.45, meaning treated patients had higher odds of recovery."
+        }
+    # 2. Chuyên đề Kiểm định t-test 1 mẫu
+    elif (any(k in lower for k in ["t test", "t-test"]) and any(k in lower for k in ["1", "một", "one"])):
+        scene_type = "academic"
+        turns_raw = [
+            ("Professor", "male", "Today let us review when to apply a One-Sample t-Test in clinical research.", "Hôm nay chúng ta hãy ôn lại khi nào áp dụng Kiểm định t một mẫu trong nghiên cứu lâm sàng."),
+            ("Student", "female", "We use it to compare the mean of a single sample against a known or hypothesized population mean.", "Chúng ta dùng kiểm định này để so sánh trung bình của một mẫu đơn lẻ với trung bình quần thể giả định ạ."),
+            ("Professor", "male", "Correct. What assumptions must be satisfied before running the one-sample t-test?", "Chính xác. Những giả định nào cần được thỏa mãn trước khi chạy kiểm định t một mẫu?"),
+            ("Student", "female", "The dependent variable must be continuous, observations independent, and data approximately normally distributed.", "Biến phụ thuộc phải là biến liên tục, các quan sát độc lập, và dữ liệu phân phối xấp xỉ chuẩn."),
+            ("Professor", "male", "And how do we decide whether to reject the null hypothesis?", "Và làm thế nào để chúng ta quyết định có bác bỏ giả thuyết không hay không?"),
+            ("Student", "female", "If the two-tailed p-value is less than 0.05, we reject H0 and conclude a statistically significant difference.", "Nếu trị số p hai phía nhỏ hơn 0.05, chúng ta bác bỏ H0 và kết luận có sự khác biệt có ý nghĩa thống kê.")
+        ]
+        vocab_list = [
+            {"word": "one-sample t-test", "ipa": "/wʌn ˈsæm.pəl tiː test/", "mean": "kiểm định t một mẫu"},
+            {"word": "null hypothesis", "ipa": "/nʌl haɪˈpɑː.θə.sɪs/", "mean": "giả thuyết không (H0)"},
+            {"word": "normal distribution", "ipa": "/ˈnɔːr.məl ˌdɪs.trɪˈbjuː.ʃən/", "mean": "phân phối chuẩn"}
+        ]
+        grammar_obj = {
+            "title": "Câu điều kiện loại 0/1 trong Quy tắc Thống kê",
+            "rule": "If + S + V (Present Simple), S + V (Present Simple / Will)",
+            "example": "If the p-value is less than 0.05, we reject the null hypothesis."
+        }
+    # 3. Chuyên đề Quán Cà phê / Starbucks
+    elif any(k in lower for k in ["starbucks", "coffee", "cà phê", "quán", "đồ uống", "cafe"]):
+        scene_type = "cafe"
+        turns_raw = [
+            ("Barista", "male", "Good morning! Welcome to Starbucks. What can I get started for you today?", "Chào buổi sáng! Chào mừng đến Starbucks. Hôm nay bạn muốn gọi đồ uống gì ạ?"),
+            ("Customer", "female", "Hi! Could I get a Grande Iced Caramel Macchiato with oat milk, please?", "Chào bạn! Cho mình một ly Caramel Macchiato đá cỡ vừa pha với sữa yến mạch nhé?"),
+            ("Barista", "male", "Sure thing. Would you like any whipped cream or extra espresso shot on that?", "Chắc chắn rồi. Bạn có muốn thêm kem tươi hay thêm một shot cà phê espresso không?"),
+            ("Customer", "female", "No whipped cream, please. Also, do you have any holiday pastries today?", "Không kem tươi nhé. Ngoài ra hôm nay quán có bánh ngọt theo mùa lễ hội không?"),
+            ("Barista", "male", "Yes, we have freshly baked cinnamon rolls and cranberry bliss bars right here.", "Có ạ, chúng tôi có bánh cuộn quế mới nướng và bánh nam việt quất ngay tại quầy này."),
+            ("Customer", "female", "I will take one cinnamon roll warmed up, please. Can I pay by card?", "Cho mình lấy một bánh cuộn quế hâm nóng nhé. Mình thanh toán bằng thẻ được không?"),
+            ("Barista", "male", "Of course! Just tap your card here. Your order will be ready at the pickup counter shortly.", "Được chứ! Bạn chỉ cần chạm thẻ ở đây. Đồ uống của bạn sẽ sẵn sàng tại quầy nhận đồ ngay thôi."),
+            ("Customer", "female", "Thank you so much. Merry Christmas and have a great day!", "Cảm ơn bạn rất nhiều. Chúc Giáng sinh vui vẻ và một ngày tốt lành!")
         ]
         vocab_list = [
             {"word": "oat milk", "ipa": "/oʊt mɪlk/", "mean": "sữa yến mạch"},
-            {"word": "seasonal pastry", "ipa": "/ˈsiː.zən.əl ˈpeɪ.stri/", "mean": "bánh ngọt theo mùa"},
+            {"word": "cinnamon roll", "ipa": "/ˈsɪn.ə.mən roʊl/", "mean": "bánh cuộn quế"},
             {"word": "pickup counter", "ipa": "/ˈpɪk.ʌp ˈkaʊn.t̬ɚ/", "mean": "quầy nhận đồ"}
         ]
         grammar_obj = {
@@ -310,87 +360,60 @@ def smart_generate_dialogue(topic_text):
             "rule": "Could I get + [Size] + [Drink] + with + [Option], please?",
             "example": "Could I get a medium iced latte with less ice, please?"
         }
-    elif is_academic:
-        vid_cat = "Hội nghị & Thảo luận học thuật"
-        turns_en = [
-            ("Dr. David (Moderator)", "male", f"Welcome everyone to today's scientific session focusing on {en_topic}. Let us begin with the key clinical implications."),
-            ("Dr. Sarah (Presenter)", "female", f"Thank you, Dr. David. Our recent multicenter findings demonstrate that {en_topic} significantly improves diagnostic accuracy and workflow efficiency."),
-            ("Dr. David (Moderator)", "male", f"That is very promising. Could you elaborate on the methodology and sample size used to validate {en_topic}?"),
-            ("Dr. Sarah (Presenter)", "female", f"Certainly. We analyzed data from over twelve hundred patients, comparing {en_topic} against conventional standard-of-care protocols."),
-            ("Dr. David (Moderator)", "male", "Did you observe any false-positive rates or confounding factors that clinicians should be aware of?"),
-            ("Dr. Sarah (Presenter)", "female", "Yes, we adjusted for age and baseline comorbidities using multivariate regression, and the specificity remained above ninety-four percent."),
-            ("Dr. David (Moderator)", "male", f"How do you foresee {en_topic} being integrated into routine hospital practice over the next few years?"),
-            ("Dr. Sarah (Presenter)", "female", f"With proper clinician training and standardized guidelines, {en_topic} will serve as a reliable decision-support tool in daily practice.")
+    # 4. Chuyên đề Ga Metro / Nhập cảnh Sân bay
+    elif any(k in lower for k in ["metro", "tàu", "nhà ga", "sân bay", "nhập cảnh", "hải quan", "immigration", "airport", "station"]):
+        scene_type = "transit"
+        turns_raw = [
+            ("Officer / Staff", "male", f"Good morning. How can I assist you today regarding {en_topic}?", f"Chào buổi sáng. Tôi có thể hỗ trợ gì cho bạn hôm nay về {topic_text}?"),
+            ("Passenger", "female", "Good morning. Could you tell me which platform or counter I should go to, and what documents are required?", "Chào buổi sáng. Bạn có thể cho tôi biết tôi nên đến sân ga hoặc quầy nào, và cần những giấy tờ gì không?"),
+            ("Officer / Staff", "male", "Please have your passport, ticket, or smart card ready. Follow the blue directional signs straight ahead to Gate 2.", "Vui lòng chuẩn bị sẵn hộ chiếu, vé hoặc thẻ thông minh. Hãy đi theo biển chỉ dẫn màu xanh thẳng phía trước đến Cổng số 2."),
+            ("Passenger", "female", "Thank you. How long does the procedure take, and where is the transfer desk?", "Cảm ơn bạn. Thủ tục mất khoảng bao lâu, và quầy chuyển tiếp nằm ở đâu ạ?"),
+            ("Officer / Staff", "male", "It takes only five minutes. The transfer desk is right next to the main escalator on your left.", "Chỉ mất 5 phút thôi. Quầy chuyển tiếp nằm ngay cạnh thang cuốn chính bên tay trái của bạn."),
+            ("Passenger", "female", "That is very clear. Thank you very much for your help!", "Rất rõ ràng rồi ạ. Cảm ơn sự giúp đỡ của bạn rất nhiều!")
         ]
         vocab_list = [
-            {"word": "diagnostic accuracy", "ipa": "/ˌdaɪ.əɡˈnɑːs.tɪk ˈæk.jɚ.ə.si/", "mean": "độ chính xác chẩn đoán"},
-            {"word": "multicenter", "ipa": "/ˌmʌl.tiˈsen.t̬ɚ/", "mean": "đa trung tâm"},
-            {"word": "comorbidities", "ipa": "/ˌkoʊ.mɔːrˈbɪd.ə.t̬iz/", "mean": "bệnh đồng mắc"}
+            {"word": "directional sign", "ipa": "/dɪˈrek.ʃən.əl saɪn/", "mean": "biển chỉ dẫn hướng đi"},
+            {"word": "escalator", "ipa": "/ˈes.kə.leɪ.t̬ɚ/", "mean": "thang cuốn"},
+            {"word": "transfer desk", "ipa": "/ˈtræns.fɝː desk/", "mean": "quầy chuyển tiếp / nối chuyến"}
         ]
         grammar_obj = {
-            "title": "Mệnh đề Danh ngữ & Bị động trong Báo cáo Khoa học",
-            "rule": "Findings demonstrate that + S + V / S + is/are + integrated into + Noun",
-            "example": f"Recent clinical evidence demonstrates that {en_topic} enhances early detection."
+            "title": "Câu hỏi Gián tiếp Lịch sự (Embedded Questions)",
+            "rule": "Could you tell me + Wh-word + S + V?",
+            "example": "Could you tell me where the ticket vending machine is?"
         }
-    elif is_travel:
-        vid_cat = "Du lịch, Sân bay & Giao thông"
-        turns_en = [
-            ("Officer / Staff", "male", f"Good morning. Welcome! How can I assist you today regarding {en_topic}?"),
-            ("Traveler", "female", f"Good morning. This is my first time here, and I would like to ask about the procedure for {en_topic}."),
-            ("Officer / Staff", "male", "Of course. May I check your passport, ticket, or booking confirmation first?"),
-            ("Traveler", "female", "Here you are. I have all my travel documents and return itinerary ready."),
-            ("Officer / Staff", "male", f"Everything looks complete. To proceed with {en_topic}, please follow the blue directional signs to Counter 4."),
-            ("Traveler", "female", "Thank you. Do I need to fill out any additional declaration form before going there?"),
-            ("Officer / Staff", "male", "No, digital verification is already completed. It will only take about five minutes."),
-            ("Traveler", "female", "That is very convenient. Thank you very much for your clear guidance!")
-        ]
-        vocab_list = [
-            {"word": "itinerary", "ipa": "/aɪˈtɪn.ə.rer.i/", "mean": "lịch trình chuyến đi"},
-            {"word": "directional signs", "ipa": "/dɪˈrek.ʃən.əl saɪnz/", "mean": "biển chỉ dẫn"},
-            {"word": "verification", "ipa": "/ˌver.ə.fəˈkeɪ.ʃən/", "mean": "sự xác minh"}
-        ]
-        grammar_obj = {
-            "title": "Câu hỏi Đề nghị & Hướng dẫn Lịch sự",
-            "rule": "To + V-infinitive, please + V-bare...",
-            "example": f"To complete {en_topic} quickly, please have your identification ready."
-        }
+    # 5. Bất kỳ chủ đề tự do nào khác (Tạo hội thoại 8 lượt sát theo chủ đề)
     else:
-        vid_cat = "Công việc & Đời sống hàng ngày"
-        turns_en = [
-            ("Mr. Alex", "male", f"Hi there! Have you had a chance to review the details about {en_topic}?"),
-            ("Ms. Jenny", "female", f"Yes, I looked through everything this morning. I think {en_topic} is very practical and well-structured."),
-            ("Mr. Alex", "male", f"Great! What do you consider the most important aspect when dealing with {en_topic}?"),
-            ("Ms. Jenny", "female", "Clear communication and preparation are essential so that everything runs smoothly without delays."),
-            ("Mr. Alex", "male", "I completely agree. Shall we prepare a checklist of key steps to share with everyone?"),
-            ("Ms. Jenny", "female", "That is an excellent idea. Let us finalize the notes today and review them together tomorrow morning."),
-            ("Mr. Alex", "male", "Sounds like a solid plan. Thank you for your helpful input!"),
-            ("Ms. Jenny", "female", "You are very welcome. Let me know if you need any further assistance.")
+        is_acad = any(k in lower for k in ["nghiên cứu", "hội nghị", "ai", "chẩn đoán", "y khoa", "dược", "lâm sàng", "luận án", "khoa học", "conference", "medical", "diagnosis", "research"])
+        scene_type = "academic" if is_acad else "general"
+        turns_raw = [
+            ("Mr. David", "male", f"Good morning. Let us discuss the key aspects of {en_topic} in detail today.", f"Chào buổi sáng. Hôm nay chúng ta hãy cùng thảo luận chi tiết về các khía cạnh chính của {topic_text}."),
+            ("Ms. Jenny", "female", f"I would be glad to. Recently, {en_topic} has attracted significant attention due to its practical impact.", f"Tôi rất sẵn lòng. Gần đây, {topic_text} đã thu hút nhiều sự chú ý nhờ tác động thực tiễn của nó."),
+            ("Mr. David", "male", f"What do you consider the most critical factor when implementing {en_topic}?", f"Theo bạn, yếu tố nào là quan trọng nhất khi triển khai {topic_text}?"),
+            ("Ms. Jenny", "female", "Careful planning, standardized procedures, and clear communication are essential for achieving optimal outcomes.", "Lập kế hoạch cẩn thận, quy trình chuẩn hóa và giao tiếp rõ ràng là những yếu tố thiết yếu để đạt kết quả tối ưu."),
+            ("Mr. David", "male", "Are there any common challenges or pitfalls we should anticipate in advance?", "Có thách thức hay trở ngại phổ biến nào mà chúng ta nên lường trước không?"),
+            ("Ms. Jenny", "female", "Yes, initial resource allocation and training require attention, but systematic monitoring resolves most issues early.", "Có, việc phân bổ nguồn lực và đào tạo ban đầu cần được chú trọng, nhưng giám sát có hệ thống sẽ giải quyết sớm hầu hết vấn đề."),
+            ("Mr. David", "male", f"Thank you for those insights. Let us summarize our action plan for {en_topic}.", f"Cảm ơn những chia sẻ sâu sắc đó. Hãy cùng tổng kết kế hoạch hành động cho {topic_text}."),
+            ("Ms. Jenny", "female", "Agreed. I will circulate the summary notes to everyone right after our session.", "Đồng ý. Tôi sẽ gửi bản ghi chú tổng kết cho mọi người ngay sau buổi thảo luận này.")
         ]
-        vocab_list = [
-            {"word": "well-structured", "ipa": "/ˌwel ˈstrʌk.tʃɚd/", "mean": "tổ chức chặt chẽ"},
-            {"word": "essential", "ipa": "/ɪˈsen.ʃəl/", "mean": "thiết yếu, quan trọng"},
-            {"word": "finalize", "ipa": "/ˈfaɪ.nəl.aɪz/", "mean": "hoàn thiện, chốt lại"}
-        ]
+        words = list(dict.fromkeys([w.lower() for w in re.findall(r'\b[a-zA-Z]{5,}\b', en_topic)]))[:3]
+        vocab_list = [{"word": w, "ipa": "", "mean": translate_stable(w, "en", "vi")} for w in words]
+        vocab_list.append({"word": "systematic monitoring", "ipa": "/ˌsɪs.təˈmæt.ɪk ˈmɑː.nə.t̬ɚ.ɪŋ/", "mean": "giám sát có hệ thống"})
         grammar_obj = {
-            "title": "Cấu trúc Đề xuất & Đồng thuận",
-            "rule": "Shall we + V-bare...? / Let us + V-bare + so that + S + V",
-            "example": f"Shall we discuss the key points of {en_topic} before the meeting?"
+            "title": "Cấu trúc Nhấn mạnh Vai trò & Điều kiện Thiết yếu",
+            "rule": "Noun Phrase + are essential for + V-ing / Noun",
+            "example": f"Standardized protocols are essential for ensuring the quality of {en_topic}."
         }
 
-    full_turns = []
-    for role, gender, en_line in turns_en:
-        vi_line = translate_stable(en_line, "en", "vi")
-        full_turns.append({"role": role, "gender": gender, "en": en_line, "vi": vi_line})
-
+    turns_list = [{"role": r, "gender": g, "en": e, "vi": v} for r, g, e, v in turns_raw]
     return {
         "title": f"Hội thoại Thực tế: {topic_text}",
-        "video_category": vid_cat,
-        "turns": full_turns,
+        "scene_type": scene_type,
+        "turns": turns_list,
         "vocab": vocab_list,
         "grammar": grammar_obj
     }
 
-def smart_generate_lecture(topic_text, extracted_doc_text=""):
+def build_lecture_payload(topic_text, extracted_doc_text=""):
     lower = topic_text.lower()
     is_vi = bool(re.search(r'[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]', topic_text, re.I))
     en_topic = translate_stable(topic_text, "vi", "en") if is_vi else topic_text
@@ -410,44 +433,66 @@ def smart_generate_lecture(topic_text, extracted_doc_text=""):
         vocab = [{"word": w, "mean": translate_stable(w, "en", "vi")} for w in words]
         return {"title": f"BÀI GIẢNG TỪ TÀI LIỆU: {topic_text.upper()}", "sections": sections, "vocab": vocab}
 
+    if "logistic" in lower or "hồi quy" in lower:
+        return {
+            "title": "LECTURE SCRIPT: MULTIVARIATE LOGISTIC REGRESSION (BÀI GIẢNG HỒI QUY LOGISTIC ĐA BIẾN)",
+            "sections": [
+                {
+                    "heading": "1. Opening & Purpose (Mở đầu & Mục đích mô hình)",
+                    "en": "Good morning everyone. Today we will examine Multivariate Logistic Regression, one of the most widely used statistical methods in clinical and epidemiological research. Unlike linear regression which models a continuous outcome, binary logistic regression is applied when the dependent variable is dichotomous—having only two categories such as cured versus not cured.",
+                    "vi": "Chào buổi sáng tất cả các bạn. Hôm nay chúng ta sẽ tìm hiểu về Hồi quy Logistic Đa biến, một trong những phương pháp thống kê được sử dụng rộng rãi nhất trong nghiên cứu lâm sàng và dịch tễ học. Không giống hồi quy tuyến tính mô hình hóa kết cục liên tục, hồi quy logistic nhị phân được áp dụng khi biến phụ thuộc là biến nhị giá—chỉ có hai phân loại như khỏi bệnh so với không khỏi bệnh."
+                },
+                {
+                    "heading": "2. Controlling Confounders & Adjusted Odds Ratio (Hiệu chỉnh nhiễu & Tỷ số chênh aOR)",
+                    "en": "The major strength of multivariate logistic regression is its ability to adjust for multiple confounding variables simultaneously. We report the Adjusted Odds Ratio (aOR) with its 95% confidence interval. An aOR > 1 indicates a risk factor, whereas an aOR < 1 indicates a protective factor.",
+                    "vi": "Điểm mạnh cốt lõi của hồi quy logistic đa biến là khả năng hiệu chỉnh đồng thời cho nhiều biến gây nhiễu. Chúng ta báo cáo Tỷ số chênh hiệu chỉnh (aOR) kèm khoảng tin cậy 95%. Giá trị aOR > 1 cho thấy yếu tố nguy cơ, trong khi aOR < 1 cho thấy yếu tố bảo vệ."
+                },
+                {
+                    "heading": "3. Model Diagnostics (Đánh giá độ phù hợp mô hình)",
+                    "en": "Finally, we evaluate model calibration using the Hosmer-Lemeshow goodness-of-fit test (where p > 0.05 indicates good fit) and assess discrimination using the Area Under the ROC Curve (AUC).",
+                    "vi": "Cuối cùng, chúng ta đánh giá độ định chuẩn của mô hình bằng kiểm định độ phù hợp Hosmer-Lemeshow (trong đó p > 0.05 cho thấy mô hình phù hợp tốt) và đánh giá khả năng phân biệt bằng Diện tích dưới đường cong ROC (AUC)."
+                }
+            ],
+            "vocab": [
+                {"word": "Multivariate logistic regression", "mean": "Hồi quy logistic đa biến"},
+                {"word": "Dichotomous variable", "mean": "Biến nhị giá"},
+                {"word": "Adjusted Odds Ratio (aOR)", "mean": "Tỷ số chênh hiệu chỉnh"},
+                {"word": "Goodness-of-fit", "mean": "Độ phù hợp của mô hình"}
+            ]
+        }
+
     if (any(k in lower for k in ["t test", "t-test"]) and any(k in lower for k in ["1", "một", "one"])):
         return {
             "title": "LECTURE SCRIPT: ONE-SAMPLE T-TEST IN BIOSTATISTICS (BÀI GIẢNG KIỂM ĐỊNH T 1 MẪU)",
             "sections": [
                 {
                     "heading": "1. Opening & Purpose (Mở đầu & Mục đích kiểm định)",
-                    "en": "Good morning everyone. Today, we will explore the One-Sample t-Test, one of the most fundamental parametric hypothesis tests in biostatistics. We use a one-sample t-test when we want to determine whether the mean of a single sample differs significantly from a known or hypothesized population mean (mu-zero).",
-                    "vi": "Chào buổi sáng tất cả các bạn. Hôm nay, chúng ta sẽ tìm hiểu về Kiểm định t một mẫu (One-Sample t-Test), một trong những kiểm định giả thuyết tham số cơ bản nhất trong thống kê y sinh. Chúng ta sử dụng kiểm định này khi muốn xác định liệu trung bình của một mẫu đơn lẻ có khác biệt có ý nghĩa thống kê so với trung bình quần thể giả định (mu-0) hay không."
+                    "en": "Good morning everyone. Today, we will explore the One-Sample t-Test, used to determine whether the mean of a single sample differs significantly from a known or hypothesized population mean (mu-zero).",
+                    "vi": "Chào buổi sáng tất cả các bạn. Hôm nay, chúng ta sẽ tìm hiểu về Kiểm định t một mẫu, dùng để xác định liệu trung bình của một mẫu đơn lẻ có khác biệt có ý nghĩa thống kê so với trung bình quần thể giả định (mu-0) hay không."
                 },
                 {
-                    "heading": "2. Key Assumptions (Các giả định cốt lõi)",
-                    "en": "Before running this test in SPSS or Stata, we must verify three critical assumptions: First, the dependent variable must be continuous. Second, the observations must be independent. Third, the data should follow an approximately normal distribution, especially when the sample size is small (n < 30).",
-                    "vi": "Trước khi chạy kiểm định này trên SPSS hoặc Stata, chúng ta phải kiểm tra ba giả định quan trọng: Thứ nhất, biến phụ thuộc phải là biến liên tục. Thứ hai, các quan sát phải độc lập. Thứ ba, dữ liệu cần tuân theo phân phối xấp xỉ chuẩn, đặc biệt khi cỡ mẫu nhỏ (n < 30)."
-                },
-                {
-                    "heading": "3. Formula & Clinical Example (Công thức & Ví dụ lâm sàng)",
-                    "en": "The test statistic t is calculated as (x-bar minus mu-zero) divided by (s divided by the square root of n), with n minus 1 degrees of freedom. For instance, if the mean fasting glucose in 25 patients is 96 mg/dL compared to a normal norm of 90 mg/dL and p < 0.05, we reject the null hypothesis.",
-                    "vi": "Trị số thống kê t được tính bằng (x trung bình trừ mu-0) chia cho (s chia căn bậc hai của n), với bậc tự do là n trừ 1. Ví dụ, nếu đường huyết đói trung bình ở 25 bệnh nhân là 96 mg/dL so với chuẩn 90 mg/dL và p < 0.05, ta bác bỏ giả thuyết không."
+                    "heading": "2. Key Assumptions & Formula (Giả định cốt lõi & Công thức)",
+                    "en": "Before running this test, verify that the dependent variable is continuous, observations are independent, and data follow an approximately normal distribution. If p < 0.05, we reject the null hypothesis H0.",
+                    "vi": "Trước khi chạy kiểm định, hãy kiểm tra biến phụ thuộc là biến liên tục, các quan sát độc lập và dữ liệu phân phối xấp xỉ chuẩn. Nếu p < 0.05, ta bác bỏ giả thuyết không H0."
                 }
             ],
             "vocab": [
                 {"word": "One-Sample t-Test", "mean": "Kiểm định t một mẫu"},
-                {"word": "Hypothesized population mean", "mean": "Trung bình quần thể giả định"},
-                {"word": "Degrees of freedom (df)", "mean": "Bậc tự do"}
+                {"word": "Null hypothesis (H0)", "mean": "Giả thuyết không"}
             ]
         }
 
-    is_academic = any(k in lower for k in ["nghiên cứu", "hội nghị", "ai", "chẩn đoán", "y khoa", "thống kê", "hồi quy", "dược", "lâm sàng", "luận án", "khoa học", "bài giảng", "conference", "medical", "diagnosis", "research", "clinical", "lecture"])
+    is_academic = any(k in lower for k in ["nghiên cứu", "hội nghị", "ai", "chẩn đoán", "y khoa", "thống kê", "dược", "lâm sàng", "luận án", "khoa học", "bài giảng", "conference", "medical", "diagnosis", "research", "clinical", "lecture"])
     if is_academic:
         raw_secs = [
-            ("1. Introduction & Lecture Objectives (Mở đầu & Mục tiêu)", f"Good morning colleagues and students. Today we will examine {en_topic}. Understanding both the theoretical principles and clinical applications of {en_topic} is vital for modern evidence-based practice."),
-            ("2. Core Concepts & Methodology (Khái niệm cốt lõi & Phương pháp)", f"When implementing {en_topic}, researchers must carefully define study parameters, validate data quality, and control for potential biases to ensure reliable and reproducible outcomes."),
-            ("3. Practical Implications & Conclusion (Ứng dụng thực tiễn & Kết luận)", f"In summary, {en_topic} offers a powerful framework for improving accuracy and efficiency. Thank you for your attention, and I welcome your questions.")
+            ("1. Introduction & Objectives (Mở đầu & Mục tiêu)", f"Good morning colleagues and students. Today we will examine {en_topic}. Understanding both the theoretical principles and clinical applications of {en_topic} is vital for modern evidence-based practice."),
+            ("2. Core Concepts & Methodology (Khái niệm cốt lõi & Phương pháp)", f"When implementing {en_topic}, researchers must carefully define study parameters, validate data quality, and control for potential biases to ensure reliable outcomes."),
+            ("3. Practical Implications & Conclusion (Ứng dụng thực tiễn & Kết luận)", f"In summary, {en_topic} offers a structured framework for improving accuracy and efficiency. Thank you for your attention.")
         ]
     else:
         raw_secs = [
-            ("1. Situation Overview & Greetings (Tổng quan tình huống & Chào hỏi)", f"When you are experiencing {en_topic}, using clear and polite English phrases helps you communicate smoothly. Always start with a polite greeting such as 'Excuse me' or 'Good morning' before stating your request."),
-            ("2. Key Interactions & Useful Questions (Giao tiếp chính & Câu hỏi thông dụng)", f"During {en_topic}, pay attention to directional signs and staff instructions. Useful questions include 'Could you guide me to the right counter?' or 'What documents do I need to present?'"),
+            ("1. Situation Overview & Greetings (Tổng quan tình huống & Chào hỏi)", f"When you are experiencing {en_topic}, using clear and polite English phrases helps you communicate smoothly. Always start with a polite greeting such as 'Excuse me' or 'Good morning'."),
+            ("2. Key Interactions & Useful Questions (Giao tiếp chính & Câu hỏi thông dụng)", f"During {en_topic}, pay attention to directional signs and staff instructions. Useful questions include 'Could you guide me to the right counter?' or 'What documents do I need?'"),
             ("3. Polite Closing (Kết thúc lịch sự)", f"Once everything is resolved regarding {en_topic}, thank the staff warmly by saying 'Thank you very much for your assistance.'")
         ]
 
@@ -754,336 +799,670 @@ with tab2:
     components.html(cabin_html_code, height=700, scrolling=True)
 
 # ==============================================================================
-# TAB 3: HỌC TIẾNG ANH CÙNG AI (TỐC ĐỘ NHANH + MENU XANH ĐỒNG BỘ + KHÔNG VỠ HTML)
+# TAB 3: HỌC TIẾNG ANH CÙNG AI (GIAO DIỆN ĐỒNG BỘ + ÂM THANH NAM/NỮ NHÚNG SẴN)
 # ==============================================================================
 with tab3:
     st.subheader("Hệ thống Học Tiếng Anh Tương tác cùng AI")
 
-    # Tải tài liệu lên (Word / PDF / PNG)
+    # Khu vực nhập chủ đề hoặc tải tài liệu gọn gàng trên 1 hàng
     with st.expander("Tải tài liệu lên (Word / PDF / PNG)", expanded=False):
         uploaded_file_t3 = st.file_uploader("Chọn file Word (.docx), PDF (.pdf) hoặc Hình ảnh (.png):", type=["docx", "pdf", "png"], key="t3_file_uploader")
         if uploaded_file_t3 is not None:
             if uploaded_file_t3.name.lower().endswith(".png"):
-                st.image(uploaded_file_t3, caption="Hình ảnh đã tải lên", width=260)
-            col_u1, col_u2 = st.columns(2)
-            with col_u1:
-                if st.button("Tạo Hội thoại Nam/Nữ từ tài liệu", type="primary", use_container_width=True):
-                    with st.spinner("Đang phân tích nội dung và tạo hội thoại..."):
-                        extracted_ctx = extract_text_from_uploaded(uploaded_file_t3)
-                        st.session_state["ai_dialogue_data"] = smart_generate_dialogue(extracted_ctx or uploaded_file_t3.name)
-                        st.session_state["ai_dialogue_audio"] = None
-                        st.session_state["active_t3_menu"] = "video"
-                        st.rerun()
-            with col_u2:
-                if st.button("Tạo Bài viết / Kịch bản từ tài liệu", use_container_width=True):
-                    with st.spinner("Đang biên soạn bài giảng từ tài liệu..."):
-                        extracted_ctx = extract_text_from_uploaded(uploaded_file_t3)
-                        st.session_state["ai_lecture_data"] = smart_generate_lecture(uploaded_file_t3.name, extracted_ctx)
-                        st.session_state["active_t3_menu"] = "lecture"
-                        st.rerun()
+                st.image(uploaded_file_t3, caption="Hình ảnh đã tải lên", width=240)
+            if st.button("Tạo Hội thoại & Bài giảng từ tài liệu này", type="primary"):
+                with st.spinner("Đang phân tích nội dung & tổng hợp giọng đọc Nam/Nữ..."):
+                    extracted_ctx = extract_text_from_uploaded(uploaded_file_t3)
+                    raw_dlg = build_dialogue_payload(extracted_ctx or uploaded_file_t3.name)
+                    st.session_state["t3_dlg_json"] = attach_neural_audio_to_dialogue(json.dumps(raw_dlg, ensure_ascii=False))
+                    raw_lec = build_lecture_payload(uploaded_file_t3.name, extracted_ctx)
+                    st.session_state["t3_lec_json"] = json.dumps(raw_lec, ensure_ascii=False)
+                    st.success("Đã cập nhật xong bài học từ tài liệu!")
 
-    # Thanh chọn chức năng phụ màu xanh dương nổi bật (Segmented Control / Radio styled)
-    if "active_t3_menu" not in st.session_state:
-        st.session_state["active_t3_menu"] = "video"
+    col_in, col_go = st.columns([4, 1])
+    with col_in:
+        user_topic = st.text_input(
+            "Nhập chủ đề bất kỳ (VD: hồi quy logistic, kiểm định t-test 1 mẫu, tại ga metro, nhập cảnh sân bay...):",
+            placeholder="Nhập chủ đề muốn tạo hội thoại & bài giảng...",
+            key="t3_topic_input"
+        )
+    with col_go:
+        st.markdown("<div style='height: 26px;'></div>", unsafe_allow_html=True)
+        btn_create_topic = st.button("Tạo nội dung AI", type="primary", use_container_width=True)
 
-    menu_map = {
-        "video": "Video & Hội thoại",
-        "lecture": "Bài viết & Kịch bản",
-        "dict": "Từ điển & Phát âm",
-        "chat": "Gia sư Song ngữ"
-    }
+    # Khởi tạo dữ liệu mặc định hoặc cập nhật ngay khi bấm Tạo nội dung AI
+    if btn_create_topic and user_topic.strip():
+        with st.spinner(f"Đang biên soạn hội thoại Nam/Nữ & bài giảng về '{user_topic}'..."):
+            raw_dlg = build_dialogue_payload(user_topic.strip())
+            st.session_state["t3_dlg_json"] = attach_neural_audio_to_dialogue(json.dumps(raw_dlg, ensure_ascii=False))
+            raw_lec = build_lecture_payload(user_topic.strip())
+            st.session_state["t3_lec_json"] = json.dumps(raw_lec, ensure_ascii=False)
 
-    st.markdown("""
-    <style>
-        div[data-testid="stRadio"] > div[role="radiogroup"] {
-            background-color: #0d6efd;
-            padding: 5px;
-            border-radius: 8px;
-            display: flex;
-            flex-direction: row;
-            gap: 5px;
-            width: 100%;
-        }
-        div[data-testid="stRadio"] > div[role="radiogroup"] > label {
-            flex: 1;
-            background-color: rgba(255,255,255,0.15);
-            color: #ffffff !important;
-            border-radius: 6px;
-            padding: 8px 10px;
-            justify-content: center;
-            cursor: pointer;
-            margin: 0 !important;
-            transition: all 0.2s ease;
-        }
-        div[data-testid="stRadio"] > div[role="radiogroup"] > label[data-checked="true"],
-        div[data-testid="stRadio"] > div[role="radiogroup"] > label:has(input:checked) {
-            background-color: #ffffff !important;
-            color: #0d6efd !important;
-            font-weight: bold;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.15);
-        }
-        div[data-testid="stRadio"] > div[role="radiogroup"] > label > div:first-child {
-            display: none !important;
-        }
-        div[data-testid="stRadio"] > div[role="radiogroup"] > label p {
-            font-family: 'Times New Roman', Times, serif !important;
-            font-size: 13.5px !important;
-            font-weight: bold !important;
-            color: inherit !important;
-            text-align: center;
-        }
-    </style>
-    """, unsafe_allow_html=True)
+    if "t3_dlg_json" not in st.session_state:
+        with st.spinner("Đang khởi tạo dữ liệu học tập..."):
+            init_dlg = build_dialogue_payload("Hồi quy logistic đa biến trong nghiên cứu lâm sàng")
+            st.session_state["t3_dlg_json"] = attach_neural_audio_to_dialogue(json.dumps(init_dlg, ensure_ascii=False))
+            init_lec = build_lecture_payload("Hồi quy logistic đa biến")
+            st.session_state["t3_lec_json"] = json.dumps(init_lec, ensure_ascii=False)
 
-    selected_label = st.radio(
-        "Menu chức năng:",
-        list(menu_map.values()),
-        index=list(menu_map.keys()).index(st.session_state["active_t3_menu"]),
-        horizontal=True,
-        label_visibility="collapsed",
-        key="t3_blue_nav_radio"
+    dlg_json_safe = st.session_state["t3_dlg_json"]
+    lec_json_safe = st.session_state["t3_lec_json"]
+
+    # Toàn bộ giao diện Menu xanh xổ xuống, Video Canvas, Hội thoại Nam/Nữ từng câu, Từ vựng từng từ, Bài giảng xuất Word
+    tutor_ui_template = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <style>
+            * { box-sizing: border-box; }
+            html, body {
+                width: 100%;
+                max-width: 100%;
+                overflow-x: hidden;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                background-color: #f4f6f9;
+                margin: 0;
+                padding: 4px;
+                color: #212529;
+            }
+            /* Thanh Menu xanh chuẩn đẹp, phẳng, 4 mục đều nhau */
+            .blue-menu-bar {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                background-color: #0d6efd;
+                border-radius: 8px;
+                padding: 5px;
+                gap: 5px;
+                margin-bottom: 12px;
+                box-shadow: 0 3px 8px rgba(13, 110, 253, 0.25);
+            }
+            @media (max-width: 768px) {
+                .blue-menu-bar { grid-template-columns: repeat(2, 1fr); }
+            }
+            .menu-item {
+                padding: 10px 8px;
+                border: none;
+                border-radius: 6px;
+                background-color: transparent;
+                color: #ffffff;
+                font-weight: bold;
+                cursor: pointer;
+                font-size: 13px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                transition: 0.2s;
+            }
+            .menu-item:hover { background-color: rgba(255, 255, 255, 0.2); }
+            .menu-item.active {
+                background-color: #ffffff;
+                color: #0d6efd;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.12);
+            }
+            .arrow-icon { font-size: 10px; transition: transform 0.2s; }
+            .menu-item.active .arrow-icon { transform: rotate(180deg); }
+
+            .dropdown-panel {
+                background: #ffffff;
+                border: 1px solid #cfe2ff;
+                border-top: 4px solid #0d6efd;
+                border-radius: 8px;
+                padding: 14px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+                display: none;
+            }
+            .dropdown-panel.active { display: block; }
+
+            /* Bố cục Video + Hội thoại + Từ vựng */
+            .video-layout { display: flex; gap: 14px; flex-direction: row; }
+            @media (max-width: 820px) { .video-layout { flex-direction: column; } }
+            .video-main { flex: 1.45; }
+            .video-sidebar { flex: 1; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; }
+
+            /* Màn hình Video Canvas sinh động không bao giờ đen */
+            .canvas-stage {
+                background: linear-gradient(135deg, #071936 0%, #0d6efd 100%);
+                border-radius: 10px;
+                padding: 12px;
+                color: white;
+                margin-bottom: 12px;
+                box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+            }
+            canvas#sceneCanvas {
+                width: 100%;
+                height: 190px;
+                background: #0a2540;
+                border-radius: 8px;
+                display: block;
+                border: 1px solid rgba(255,255,255,0.2);
+            }
+            .stage-caption {
+                background: rgba(0, 0, 0, 0.55);
+                border-radius: 6px;
+                padding: 10px;
+                margin-top: 8px;
+                text-align: center;
+                min-height: 64px;
+            }
+            .controls-toolbar {
+                display: flex;
+                gap: 6px;
+                flex-wrap: wrap;
+                justify-content: center;
+                margin-top: 10px;
+            }
+            .btn-ui {
+                padding: 8px 12px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+                cursor: pointer;
+                border: none;
+            }
+            .btn-green { background: #198754; color: #fff; }
+            .btn-navy { background: #084298; color: #fff; }
+            .btn-red { background: #dc3545; color: #fff; }
+            .btn-white { background: #ffffff; color: #0d6efd; border: 1px solid #0d6efd; }
+
+            /* Thẻ từng câu hội thoại Nam / Nữ */
+            .turn-card {
+                padding: 10px 12px;
+                border-radius: 6px;
+                margin-bottom: 8px;
+                border-left: 4px solid #0d6efd;
+                background: #f0f7ff;
+                transition: 0.2s;
+            }
+            .turn-card.female {
+                border-left-color: #d63384;
+                background: #fff0f6;
+            }
+            .turn-card.active-turn {
+                box-shadow: 0 0 0 2px #0d6efd;
+                transform: scale(1.005);
+            }
+            .turn-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 4px;
+                font-size: 12px;
+                font-weight: bold;
+                color: #084298;
+            }
+            .turn-card.female .turn-header { color: #a61e4d; }
+            .btn-mini-play {
+                background: #0d6efd;
+                color: #fff;
+                border: none;
+                border-radius: 4px;
+                padding: 3px 9px;
+                font-size: 11px;
+                font-weight: bold;
+                cursor: pointer;
+            }
+            .turn-card.female .btn-mini-play { background: #d63384; }
+            .sub-hidden { filter: blur(5px); user-select: none; opacity: 0.35; }
+
+            .vocab-item {
+                background: #ffffff;
+                border-left: 4px solid #0d6efd;
+                border-radius: 6px;
+                padding: 8px 10px;
+                margin-bottom: 8px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+            }
+            .grammar-box {
+                background: #e7f1ff;
+                border: 1px solid #b6d4fe;
+                border-radius: 6px;
+                padding: 10px;
+                margin-top: 10px;
+            }
+            .lecture-box {
+                max-height: 440px;
+                overflow-y: auto;
+                border: 1px solid #b6d4fe;
+                border-radius: 8px;
+                padding: 14px;
+                font-family: 'Times New Roman', Times, serif;
+            }
+            .input-row { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+            .input-row input { flex: 1; min-width: 180px; padding: 9px 12px; border: 1px solid #ced4da; border-radius: 6px; font-size: 14px; }
+        </style>
+    </head>
+    <body>
+        <div class="blue-menu-bar">
+            <button class="menu-item active" onclick="switchSubTab('video', this)">
+                <span>Video & Hội thoại</span>
+                <span class="arrow-icon">▼</span>
+            </button>
+            <button class="menu-item" onclick="switchSubTab('lecture', this)">
+                <span>Bài viết & Kịch bản</span>
+                <span class="arrow-icon">▼</span>
+            </button>
+            <button class="menu-item" onclick="switchSubTab('dict', this)">
+                <span>Từ điển & Phát âm</span>
+                <span class="arrow-icon">▼</span>
+            </button>
+            <button class="menu-item" onclick="switchSubTab('chat', this)">
+                <span>Gia sư Song ngữ</span>
+                <span class="arrow-icon">▼</span>
+            </button>
+        </div>
+
+        <!-- PANEL 1: VIDEO HOẠT HỌA + HỘI THOẠI NAM/NỮ + TỪ VỰNG -->
+        <div id="sub-video" class="dropdown-panel active">
+            <div style="font-weight:bold; color:#084298; font-size:15px; margin-bottom:10px;" id="dlg-main-title"></div>
+            <div class="video-layout">
+                <div class="video-main">
+                    <div class="canvas-stage">
+                        <canvas id="sceneCanvas" width="600" height="190"></canvas>
+                        <div class="stage-caption">
+                            <div style="font-size:14px; font-weight:bold; color:#fff;" id="stage-en">Bấm "Phát Video & Hội thoại" để xem hoạt họa & nghe đối đáp Nam - Nữ</div>
+                            <div style="font-size:12.5px; color:#9ec5fe; font-style:italic; margin-top:4px;" id="stage-vi"></div>
+                        </div>
+                        <div class="controls-toolbar">
+                            <button class="btn-ui btn-green" onclick="playAllTurns(1.0)">Phát Video & Hội thoại (1.0x)</button>
+                            <button class="btn-ui btn-navy" onclick="playAllTurns(0.75)">Nghe chậm (0.75x)</button>
+                            <button class="btn-ui btn-red" onclick="stopAudio()">Dừng</button>
+                            <button class="btn-ui btn-white" id="btn-sub" onclick="toggleSubs()">Ẩn phụ đề</button>
+                        </div>
+                    </div>
+
+                    <div id="turns-list-container"></div>
+                </div>
+
+                <div class="video-sidebar">
+                    <div style="font-weight:bold; color:#0d6efd; font-size:14px; border-bottom:1px solid #dee2e6; padding-bottom:5px; margin-bottom:8px;">
+                        Từ vựng trọng tâm (Bấm nghe từng từ)
+                    </div>
+                    <div id="vocab-list-container"></div>
+
+                    <div style="font-weight:bold; color:#084298; font-size:14px; border-bottom:1px solid #dee2e6; padding-bottom:5px; margin-top:14px; margin-bottom:8px;">
+                        Ngữ pháp & Mẫu câu liên quan
+                    </div>
+                    <div id="grammar-container"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PANEL 2: BÀI VIẾT & KỊCH BẢN GIẢNG BÀI + XUẤT WORD -->
+        <div id="sub-lecture" class="dropdown-panel">
+            <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
+                <button class="btn-ui btn-green" onclick="exportLectureToWord()">Tải về file Word (.doc)</button>
+                <button class="btn-ui btn-white" id="btn-lec-vi" onclick="toggleLecVi()">Ẩn bản dịch tiếng Việt</button>
+            </div>
+            <div class="lecture-box" id="lecture-content-box"></div>
+        </div>
+
+        <!-- PANEL 3: TỪ ĐIỂN & PHÁT ÂM -->
+        <div id="sub-dict" class="dropdown-panel">
+            <div class="input-row">
+                <input type="text" id="dict-query" placeholder="Nhập từ tiếng Anh (VD: logistic, dichotomous, platform)..." onkeypress="if(event.key==='Enter') searchDict()">
+                <button class="btn-ui btn-navy" onclick="searchDict()">Tra cứu & Nghe</button>
+            </div>
+            <div id="dict-output" style="font-size:14px; color:#495057;"></div>
+        </div>
+
+        <!-- PANEL 4: GIA SƯ SONG NGỮ -->
+        <div id="sub-chat" class="dropdown-panel">
+            <div class="input-row">
+                <input type="text" id="tutor-query" placeholder="Nhập câu tiếng Việt hoặc câu tiếng Anh..." onkeypress="if(event.key==='Enter') askTutor()">
+                <button class="btn-ui btn-navy" onclick="askTutor()">Gửi AI</button>
+            </div>
+            <div id="tutor-output" style="font-size:14px;"></div>
+        </div>
+
+        <script>
+            const DLG_DATA = __DLG_JSON__;
+            const LEC_DATA = __LEC_JSON__;
+
+            let currentAudio = null;
+            let isPlayingSeq = false;
+            let subsVisible = true;
+            let lecViVisible = true;
+            let activeSpeakerGender = null;
+            let animFrameId = null;
+            let wavePhase = 0;
+
+            function switchSubTab(tabId, btn) {
+                document.querySelectorAll('.dropdown-panel').forEach(p => p.classList.remove('active'));
+                document.querySelectorAll('.menu-item').forEach(b => b.classList.remove('active'));
+                document.getElementById('sub-' + tabId).classList.add('active');
+                btn.classList.add('active');
+                stopAudio();
+            }
+
+            // =====================================================================
+            // VẼ VIDEO HOẠT HỌA TRỰC QUAN TRÊN CANVAS (KHÔNG BAO GIỜ ĐEN MÀN HÌNH)
+            // =====================================================================
+            function drawSceneFrame() {
+                const canvas = document.getElementById('sceneCanvas');
+                if (!canvas) return;
+                const ctx = canvas.getContext('2d');
+                const w = canvas.width;
+                const h = canvas.height;
+
+                ctx.clearRect(0, 0, w, h);
+
+                // Nền bối cảnh theo chủ đề
+                let grad = ctx.createLinearGradient(0, 0, w, h);
+                grad.addColorStop(0, "#0a2540");
+                grad.addColorStop(1, "#1e3a8a");
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, w, h);
+
+                // Nhãn bối cảnh góc trên
+                ctx.fillStyle = "rgba(255,255,255,0.15)";
+                ctx.fillRect(15, 12, 230, 24);
+                ctx.fillStyle = "#93c5fd";
+                ctx.font = "bold 12px sans-serif";
+                let sceneLabel = DLG_DATA.scene_type === "academic" ? "BỐI CẢNH: HỘI NGHỊ KHOA HỌC" :
+                                 (DLG_DATA.scene_type === "cafe" ? "BỐI CẢNH: QUÁN CÀ PHÊ" :
+                                 (DLG_DATA.scene_type === "transit" ? "BỐI CẢNH: SÂN BAY / GA METRO" : "BỐI CẢNH: THẢO LUẬN THỰC TẾ"));
+                ctx.fillText(sceneLabel, 24, 28);
+
+                // Nhân vật Nam (bên trái)
+                let malePulse = (activeSpeakerGender === 'male') ? Math.sin(wavePhase * 0.3) * 6 : 0;
+                ctx.beginPath();
+                ctx.arc(130, 95, 34 + Math.abs(malePulse), 0, Math.PI * 2);
+                ctx.fillStyle = (activeSpeakerGender === 'male') ? "rgba(56, 189, 248, 0.35)" : "rgba(255,255,255,0.08)";
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.arc(130, 85, 18, 0, Math.PI * 2);
+                ctx.fillStyle = "#38bdf8";
+                ctx.fill();
+                ctx.fillRect(108, 108, 44, 32);
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "bold 12px sans-serif";
+                ctx.textAlign = "center";
+                ctx.fillText("Vai Nam", 130, 158);
+
+                // Nhân vật Nữ (bên phải)
+                let femalePulse = (activeSpeakerGender === 'female') ? Math.sin(wavePhase * 0.3) * 6 : 0;
+                ctx.beginPath();
+                ctx.arc(470, 95, 34 + Math.abs(femalePulse), 0, Math.PI * 2);
+                ctx.fillStyle = (activeSpeakerGender === 'female') ? "rgba(244, 114, 182, 0.35)" : "rgba(255,255,255,0.08)";
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.arc(470, 85, 18, 0, Math.PI * 2);
+                ctx.fillStyle = "#f472b6";
+                ctx.fill();
+                ctx.fillRect(448, 108, 44, 32);
+                ctx.fillStyle = "#ffffff";
+                ctx.fillText("Vai Nữ", 470, 158);
+
+                // Sóng âm thanh ở giữa 2 nhân vật
+                for (let i = 0; i < 15; i++) {
+                    let barH = activeSpeakerGender ? (10 + Math.abs(Math.sin(wavePhase * 0.25 + i * 0.6)) * 38) : 6;
+                    ctx.fillStyle = activeSpeakerGender === 'male' ? "#38bdf8" : (activeSpeakerGender === 'female' ? "#f472b6" : "rgba(255,255,255,0.25)");
+                    ctx.fillRect(215 + i * 12, 95 - barH / 2, 6, barH);
+                }
+                ctx.textAlign = "left";
+
+                wavePhase++;
+                animFrameId = requestAnimationFrame(drawSceneFrame);
+            }
+            drawSceneFrame();
+
+            // =====================================================================
+            // PHÁT ÂM THANH BASE64 EDGE-TTS (CHẠY CHUẨN GIỌNG NAM & NỮ TRÊN MOBILE)
+            // =====================================================================
+            function stopAudio() {
+                isPlayingSeq = false;
+                activeSpeakerGender = null;
+                if (currentAudio) {
+                    currentAudio.pause();
+                    currentAudio = null;
+                }
+                if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+                document.querySelectorAll('.turn-card').forEach(c => c.classList.remove('active-turn'));
+            }
+
+            function playSingleBase64(b64, fallbackText, rate = 1.0, onEndCallback = null) {
+                stopAudio();
+                if (b64 && b64.length > 20) {
+                    currentAudio = new Audio("data:audio/mp3;base64," + b64);
+                    currentAudio.playbackRate = rate;
+                    currentAudio.onended = function() {
+                        activeSpeakerGender = null;
+                        if (onEndCallback) onEndCallback();
+                    };
+                    currentAudio.play().catch(() => {
+                        fallbackBrowserSpeak(fallbackText, rate, onEndCallback);
+                    });
+                } else {
+                    fallbackBrowserSpeak(fallbackText, rate, onEndCallback);
+                }
+            }
+
+            function fallbackBrowserSpeak(text, rate, cb) {
+                if ('speechSynthesis' in window) {
+                    let u = new SpeechSynthesisUtterance(text);
+                    u.lang = 'en-US';
+                    u.rate = rate;
+                    u.onend = function() {
+                        activeSpeakerGender = null;
+                        if (cb) cb();
+                    };
+                    window.speechSynthesis.speak(u);
+                }
+            }
+
+            function playTurnByIndex(idx) {
+                let t = DLG_DATA.turns[idx];
+                activeSpeakerGender = t.gender;
+                document.getElementById('stage-en').innerText = subsVisible ? `${t.role}: "${t.en}"` : "[Đang ẩn phụ đề]";
+                document.getElementById('stage-vi').innerText = subsVisible ? t.vi : "";
+                playSingleBase64(t.audio_b64, t.en, 1.0, () => {
+                    document.querySelectorAll('.turn-card').forEach(c => c.classList.remove('active-turn'));
+                });
+                let card = document.getElementById('tcard-' + idx);
+                if (card) card.classList.add('active-turn');
+            }
+
+            function playVocabByIndex(idx) {
+                let v = DLG_DATA.vocab[idx];
+                playSingleBase64(v.audio_b64, v.word, 0.95);
+            }
+
+            function playAllTurns(rate) {
+                stopAudio();
+                isPlayingSeq = true;
+                let idx = 0;
+
+                function step() {
+                    if (!isPlayingSeq || idx >= DLG_DATA.turns.length) {
+                        isPlayingSeq = false;
+                        activeSpeakerGender = null;
+                        document.querySelectorAll('.turn-card').forEach(c => c.classList.remove('active-turn'));
+                        return;
+                    }
+                    let t = DLG_DATA.turns[idx];
+                    activeSpeakerGender = t.gender;
+                    document.querySelectorAll('.turn-card').forEach(c => c.classList.remove('active-turn'));
+                    let card = document.getElementById('tcard-' + idx);
+                    if (card) card.classList.add('active-turn');
+
+                    document.getElementById('stage-en').innerText = subsVisible ? `${t.role}: "${t.en}"` : "[Đang ẩn phụ đề]";
+                    document.getElementById('stage-vi').innerText = subsVisible ? t.vi : "";
+
+                    if (t.audio_b64 && t.audio_b64.length > 20) {
+                        currentAudio = new Audio("data:audio/mp3;base64," + t.audio_b64);
+                        currentAudio.playbackRate = rate;
+                        currentAudio.onended = function() {
+                            idx++;
+                            setTimeout(step, 300);
+                        };
+                        currentAudio.play().catch(() => {
+                            idx++;
+                            step();
+                        });
+                    } else {
+                        fallbackBrowserSpeak(t.en, rate, () => {
+                            idx++;
+                            setTimeout(step, 300);
+                        });
+                    }
+                }
+                step();
+            }
+
+            function toggleSubs() {
+                subsVisible = !subsVisible;
+                document.querySelectorAll('.sub-text').forEach(el => {
+                    if (subsVisible) el.classList.remove('sub-hidden');
+                    else el.classList.add('sub-hidden');
+                });
+                document.getElementById('btn-sub').innerText = subsVisible ? "Ẩn phụ đề" : "Hiện phụ đề";
+            }
+
+            // =====================================================================
+            // RENDER GIAO DIỆN HỘI THOẠI, TỪ VỰNG & BÀI GIẢNG
+            // =====================================================================
+            function renderAll() {
+                document.getElementById('dlg-main-title').innerText = DLG_DATA.title;
+
+                let turnsHtml = "";
+                DLG_DATA.turns.forEach((t, i) => {
+                    let isFem = t.gender === "female";
+                    let cls = isFem ? "turn-card female" : "turn-card";
+                    let gText = isFem ? "Giọng Nữ" : "Giọng Nam";
+                    turnsHtml += `
+                        <div class="${cls}" id="tcard-${i}">
+                            <div class="turn-header">
+                                <span>${t.role} (${gText})</span>
+                                <button class="btn-mini-play" onclick="playTurnByIndex(${i})">Nghe câu này</button>
+                            </div>
+                            <div class="sub-text" style="font-size:14.5px; font-weight:bold; color:#111;">${t.en}</div>
+                            <div class="sub-text" style="font-size:13px; color:#555; font-style:italic; margin-top:3px;">${t.vi}</div>
+                        </div>
+                    `;
+                });
+                document.getElementById('turns-list-container').innerHTML = turnsHtml;
+
+                let vocabHtml = "";
+                DLG_DATA.vocab.forEach((v, i) => {
+                    vocabHtml += `
+                        <div class="vocab-item">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="font-weight:bold; color:#0d6efd; font-size:14.5px;">${v.word}</span>
+                                <button class="btn-mini-play" onclick="playVocabByIndex(${i})">Nghe từ</button>
+                            </div>
+                            ${v.ipa ? `<div style="font-family:monospace; color:#6c757d; font-size:12px;">${v.ipa}</div>` : ''}
+                            <div style="font-size:13px; color:#212529; margin-top:2px;">Nghĩa: <b>${v.mean}</b></div>
+                        </div>
+                    `;
+                });
+                document.getElementById('vocab-list-container').innerHTML = vocabHtml;
+
+                if (DLG_DATA.grammar) {
+                    document.getElementById('grammar-container').innerHTML = `
+                        <div class="grammar-box">
+                            <div style="font-weight:bold; color:#084298; font-size:13.5px;">${DLG_DATA.grammar.title}</div>
+                            <div style="background:#fff; padding:5px 7px; border-radius:4px; font-family:monospace; font-size:12px; color:#d63384; margin:5px 0;">${DLG_DATA.grammar.rule}</div>
+                            <div style="font-size:13px;"><b>Ví dụ:</b> <i>"${DLG_DATA.grammar.example}"</i></div>
+                        </div>
+                    `;
+                }
+
+                // Render Bài viết & Kịch bản
+                let lecHtml = `<h4 style="color:#084298; border-bottom:2px solid #0d6efd; padding-bottom:6px; margin-top:0;">${LEC_DATA.title}</h4>`;
+                LEC_DATA.sections.forEach(s => {
+                    lecHtml += `
+                        <div style="background:#f8f9fa; border-left:4px solid #0d6efd; padding:10px 12px; margin-bottom:10px; border-radius:4px;">
+                            <div style="font-weight:bold; color:#0d6efd; margin-bottom:4px;">${s.heading}</div>
+                            <div style="color:#111; line-height:1.55;">${s.en}</div>
+                            <div class="lec-vi-line" style="color:#495057; font-style:italic; margin-top:5px; border-top:1px dashed #ced4da; padding-top:4px;">${s.vi}</div>
+                        </div>
+                    `;
+                });
+                if (LEC_DATA.vocab && LEC_DATA.vocab.length > 0) {
+                    lecHtml += `<div style="background:#e7f1ff; padding:10px; border-radius:6px;"><b>Thuật ngữ trọng tâm:</b><ul style="margin-bottom:0;">`;
+                    LEC_DATA.vocab.forEach(v => {
+                        lecHtml += `<li><b>${v.word}:</b> ${v.mean}</li>`;
+                    });
+                    lecHtml += `</ul></div>`;
+                }
+                document.getElementById('lecture-content-box').innerHTML = lecHtml;
+            }
+
+            function toggleLecVi() {
+                lecViVisible = !lecViVisible;
+                document.querySelectorAll('.lec-vi-line').forEach(el => {
+                    el.style.display = lecViVisible ? "block" : "none";
+                });
+                document.getElementById('btn-lec-vi').innerText = lecViVisible ? "Ẩn bản dịch tiếng Việt" : "Hiện bản dịch tiếng Việt";
+            }
+
+            function exportLectureToWord() {
+                let body = `<h2 style="text-align:center; color:#084298; font-family:'Times New Roman', serif;">${LEC_DATA.title}</h2><hr/>`;
+                LEC_DATA.sections.forEach(s => {
+                    body += `<p style="font-weight:bold; color:#0d6efd; font-size:13pt;">${s.heading}</p><p style="font-size:12pt;">${s.en}</p><p style="font-size:11.5pt; font-style:italic; color:#333;"><i>(${s.vi})</i></p>`;
+                });
+                let docHtml = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><style>body{font-family:'Times New Roman',serif;}</style></head><body>${body}</body></html>`;
+                let blob = new Blob(['\ufeff', docHtml], { type: 'application/msword' });
+                let url = URL.createObjectURL(blob);
+                let a = document.createElement('a');
+                a.href = url;
+                a.download = 'Bai_Giang_Tieng_Anh.doc';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
+
+            async function searchDict() {
+                let w = document.getElementById('dict-query').value.trim();
+                if (!w) return;
+                let out = document.getElementById('dict-output');
+                out.innerHTML = "Đang tra cứu...";
+                try {
+                    let res = await fetch(`https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=en&tl=vi&q=${encodeURIComponent(w)}`);
+                    let data = await res.json();
+                    let vi = Array.isArray(data) ? data.join(" ") : data;
+                    out.innerHTML = `<div style="background:#f1f8ff; border-left:4px solid #0d6efd; padding:12px; border-radius:6px;">
+                        <b style="font-size:17px; color:#0d6efd;">${w}</b>: <b style="font-size:16px;">${vi}</b>
+                        <button class="btn-mini-play" style="margin-left:10px;" onclick="fallbackBrowserSpeak('${w.replace(/'/g, "\\'")}', 0.95)">Nghe phát âm</button>
+                    </div>`;
+                    fallbackBrowserSpeak(w, 0.95);
+                } catch(e) { out.innerHTML = "Lỗi kết nối từ điển."; }
+            }
+
+            async function askTutor() {
+                let q = document.getElementById('tutor-query').value.trim();
+                if (!q) return;
+                let out = document.getElementById('tutor-output');
+                out.innerHTML = "Đang phân tích...";
+                let isVi = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(q);
+                let sl = isVi ? 'vi' : 'en';
+                let tl = isVi ? 'en' : 'vi';
+                try {
+                    let res = await fetch(`https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${sl}&tl=${tl}&q=${encodeURIComponent(q)}`);
+                    let data = await res.json();
+                    let ans = Array.isArray(data) ? data.join(" ") : data;
+                    let speakStr = isVi ? ans : q;
+                    out.innerHTML = `<div style="background:#e9ecef; padding:12px; border-radius:6px;">
+                        <b>Gợi ý của AI:</b> <span style="color:#084298; font-weight:bold;">${ans}</span>
+                        <button class="btn-mini-play" style="margin-left:8px;" onclick="fallbackBrowserSpeak('${speakStr.replace(/'/g, "\\'")}', 0.95)">Nghe</button>
+                    </div>`;
+                    fallbackBrowserSpeak(speakStr, 0.95);
+                } catch(e) { out.innerHTML = "Lỗi kết nối."; }
+            }
+
+            renderAll();
+        </script>
+    </body>
+    </html>
+    """
+
+    final_tutor_html = (tutor_ui_template
+        .replace("__DLG_JSON__", dlg_json_safe)
+        .replace("__LEC_JSON__", lec_json_safe)
     )
-    active_menu = [k for k, v in menu_map.items() if v == selected_label][0]
-    st.session_state["active_t3_menu"] = active_menu
-
-    # --------------------------------------------------------------------------
-    # MỤC 1: VIDEO & HỘI THOẠI ĐA VAI NAM / NỮ
-    # --------------------------------------------------------------------------
-    if active_menu == "video":
-        col_topic, col_btn = st.columns([3.5, 1])
-        with col_topic:
-            custom_scene_prompt = st.text_input(
-                "Nhập tình huống thực tế bất kỳ (VD: hội nghị khoa học AI trong chẩn đoán, tại ga metro, nhập cảnh sân bay...):",
-                placeholder="Nhập chủ đề hoặc tình huống...",
-                key="scene_prompt_input"
-            )
-        with col_btn:
-            st.markdown("<div style='height: 26px;'></div>", unsafe_allow_html=True)
-            gen_scene_btn = st.button("Tạo Hội thoại", type="primary", use_container_width=True)
-
-        if gen_scene_btn and custom_scene_prompt.strip():
-            with st.spinner("Đang tạo kịch bản hội thoại Nam/Nữ thực tế..."):
-                st.session_state["ai_dialogue_data"] = smart_generate_dialogue(custom_scene_prompt)
-                st.session_state["ai_dialogue_audio"] = None
-
-        if "ai_dialogue_data" not in st.session_state:
-            st.session_state["ai_dialogue_data"] = smart_generate_dialogue("Hội nghị khoa học chủ đề AI trong chẩn đoán")
-
-        dlg = st.session_state["ai_dialogue_data"]
-        st.markdown(f"**{dlg.get('title', 'Hội thoại Thực tế')}**")
-
-        col_vid, col_side = st.columns([1.45, 1])
-
-        with col_vid:
-            cat_default = dlg.get("video_category", "Hội nghị & Thảo luận học thuật")
-            cat_keys = list(SAMPLE_VIDEOS.keys())
-            default_idx = cat_keys.index(cat_default) if cat_default in cat_keys else 0
-            selected_vid_cat = st.selectbox("Video bối cảnh minh họa:", cat_keys, index=default_idx, key="vid_cat_sel")
-            st.video(SAMPLE_VIDEOS[selected_vid_cat])
-
-            c_aud1, c_aud2, c_aud3, c_aud4 = st.columns([1.2, 1.2, 1, 1])
-            with c_aud1:
-                play_norm = st.button("Nghe Nam/Nữ (1.0x)", type="primary", use_container_width=True)
-            with c_aud2:
-                play_slow = st.button("Nghe chậm (0.7x)", use_container_width=True)
-            with c_aud3:
-                swap_g = st.checkbox("Đảo Nam/Nữ", key="swap_gender_chk")
-            with c_aud4:
-                show_sub = st.checkbox("Hiện phụ đề", value=True, key="show_sub_chk")
-
-            if play_norm or play_slow:
-                rate_val = 0.7 if play_slow else 1.0
-                with st.spinner("Đang tổng hợp giọng Nam & Nữ..."):
-                    turns_str = json.dumps(dlg["turns"], ensure_ascii=False)
-                    mp3_bytes = generate_dialogue_mp3_cached(turns_str, speed_rate=rate_val, swap_gender=swap_g)
-                    if mp3_bytes:
-                        st.session_state["ai_dialogue_audio"] = mp3_bytes
-
-            if st.session_state.get("ai_dialogue_audio"):
-                st.audio(st.session_state["ai_dialogue_audio"], format="audio/mp3", autoplay=True)
-
-            # Ghép HTML sát lề trái (không thụt 4 dấu cách để tránh bị biến thành code block)
-            turns_html_parts = []
-            for idx, turn in enumerate(dlg["turns"]):
-                g = turn.get("gender", "male" if idx % 2 == 0 else "female").lower()
-                if swap_g:
-                    g = "female" if g == "male" else "male"
-                bg_color = "#f0f7ff" if g == "male" else "#fff0f6"
-                border_color = "#0d6efd" if g == "male" else "#d63384"
-                g_label = "Giọng Nam" if g == "male" else "Giọng Nữ"
-                
-                if show_sub:
-                    turns_html_parts.append(
-                        f"<div style='background:{bg_color}; border-left:4px solid {border_color}; padding:10px 12px; border-radius:6px; margin-bottom:8px;'>"
-                        f"<div style='font-size:12px; font-weight:bold; color:#084298;'>{turn['role']} ({g_label})</div>"
-                        f"<div style='font-size:14.5px; font-weight:bold; color:#111; margin-top:3px;'>{turn['en']}</div>"
-                        f"<div style='font-size:13px; color:#555; font-style:italic; margin-top:3px;'>{turn['vi']}</div>"
-                        f"</div>"
-                    )
-                else:
-                    turns_html_parts.append(
-                        f"<div style='background:{bg_color}; border-left:4px solid {border_color}; padding:10px 12px; border-radius:6px; margin-bottom:8px;'>"
-                        f"<div style='font-size:12px; font-weight:bold; color:#084298;'>{turn['role']} ({g_label})</div>"
-                        f"<div style='font-size:13.5px; color:#888; font-style:italic;'>[Đang ẩn phụ đề để luyện nghe]</div>"
-                        f"</div>"
-                    )
-            st.markdown("".join(turns_html_parts), unsafe_allow_html=True)
-
-        with col_side:
-            st.markdown("**Từ vựng trọng tâm trong bài:**")
-            vocab_html_parts = []
-            for v in dlg.get("vocab", []):
-                vocab_html_parts.append(
-                    f"<div style='background:#f8f9fa; border-left:4px solid #0d6efd; padding:8px 12px; border-radius:6px; margin-bottom:8px;'>"
-                    f"<div style='font-weight:bold; color:#0d6efd; font-size:14.5px;'>{v.get('word', '')} <span style='font-family:monospace; color:#6c757d; font-size:12px;'>{v.get('ipa', '')}</span></div>"
-                    f"<div style='font-size:13px; color:#212529;'>Nghĩa: <b>{v.get('mean', '')}</b></div>"
-                    f"</div>"
-                )
-            st.markdown("".join(vocab_html_parts), unsafe_allow_html=True)
-
-            gram = dlg.get("grammar", {})
-            if gram:
-                st.markdown("**Chủ điểm Ngữ pháp liên quan:**")
-                gram_html = (
-                    f"<div style='background:#e7f1ff; border:1px solid #b6d4fe; padding:12px; border-radius:6px;'>"
-                    f"<div style='font-weight:bold; color:#084298; font-size:14px;'>{gram.get('title', '')}</div>"
-                    f"<div style='background:#fff; padding:5px 8px; border-radius:4px; font-family:monospace; font-size:12px; color:#d63384; margin:6px 0;'>{gram.get('rule', '')}</div>"
-                    f"<div style='font-size:13px;'><b>Ví dụ:</b> <i>\"{gram.get('example', '')}\"</i></div>"
-                    f"</div>"
-                )
-                st.markdown(gram_html, unsafe_allow_html=True)
-
-    # --------------------------------------------------------------------------
-    # MỤC 2: BÀI VIẾT & KỊCH BẢN GIẢNG BÀI + XUẤT WORD (.DOC)
-    # --------------------------------------------------------------------------
-    elif active_menu == "lecture":
-        col_l1, col_l2 = st.columns([3.5, 1])
-        with col_l1:
-            lec_prompt = st.text_input(
-                "Nhập chủ đề bài giảng hoặc bài viết (VD: bài giảng t-test 1 mẫu, tại ga metro...):",
-                placeholder="Nhập chủ đề bất kỳ...",
-                key="lec_prompt_input"
-            )
-        with col_l2:
-            st.markdown("<div style='height: 26px;'></div>", unsafe_allow_html=True)
-            gen_lec_btn = st.button("Soạn Bài giảng", type="primary", use_container_width=True)
-
-        if gen_lec_btn and lec_prompt.strip():
-            with st.spinner("Đang biên soạn bài viết / kịch bản giảng dạy..."):
-                st.session_state["ai_lecture_data"] = smart_generate_lecture(lec_prompt)
-
-        if "ai_lecture_data" not in st.session_state:
-            st.session_state["ai_lecture_data"] = smart_generate_lecture("bài giảng t-test 1 mẫu")
-
-        lec = st.session_state["ai_lecture_data"]
-
-        word_body = f"<h2 style='text-align:center; color:#084298; font-family:\"Times New Roman\", serif;'>{lec.get('title', '')}</h2><hr/>"
-        for s in lec.get("sections", []):
-            word_body += (
-                f"<p style='font-weight:bold; color:#0d6efd; font-size:13pt;'>{s.get('heading', '')}</p>"
-                f"<p style='font-size:12pt; line-height:1.5;'>{s.get('en', '')}</p>"
-                f"<p style='font-size:11.5pt; font-style:italic; color:#333;'><i>(Dịch nghĩa: {s.get('vi', '')})</i></p>"
-            )
-        if lec.get("vocab"):
-            word_body += "<p style='font-weight:bold; color:#084298; font-size:13pt;'>THUẬT NGỮ TRỌNG TÂM:</p><ul>"
-            for v in lec["vocab"]:
-                word_body += f"<li style='font-size:12pt;'><b>{v.get('word', '')}:</b> {v.get('mean', '')}</li>"
-            word_body += "</ul>"
-
-        full_word_html = f"<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><style>body{{font-family:'Times New Roman',serif;}}</style></head><body>{word_body}</body></html>"
-
-        col_w1, col_w2, col_w3 = st.columns([1.2, 1.4, 1])
-        with col_w1:
-            st.download_button(
-                label="Tải về file Word (.doc)",
-                data=full_word_html.encode("utf-8"),
-                file_name="Kich_Ban_Bai_Giang.doc",
-                mime="application/msword",
-                type="primary",
-                use_container_width=True
-            )
-        with col_w2:
-            if st.button("Nghe toàn bộ bài giảng (Giọng Nam)", use_container_width=True):
-                full_en = " ".join([s.get("en", "") for s in lec.get("sections", [])])
-                if create_mp3(full_en, "us Nam - Anh-Mỹ (Guy - Trầm ấm)", 1.0, "lecture_audio.mp3"):
-                    with open("lecture_audio.mp3", "rb") as f:
-                        st.session_state["lec_mp3"] = f.read()
-        with col_w3:
-            show_lec_vi = st.checkbox("Hiện bản dịch Việt", value=True, key="chk_lec_vi")
-
-        if st.session_state.get("lec_mp3"):
-            st.audio(st.session_state["lec_mp3"], format="audio/mp3")
-
-        # Viết liền không thụt 4 khoảng trắng để tuyệt đối không bị vỡ HTML thành code block
-        html_chunks = [
-            f"<div style='max-height:460px; overflow-y:auto; border:1px solid #b6d4fe; border-radius:8px; padding:16px; background-color:#ffffff; font-family:\"Times New Roman\", Times, serif;'>",
-            f"<h4 style='color:#084298; border-bottom:2px solid #0d6efd; padding-bottom:6px; margin-top:0;'>{lec.get('title', '')}</h4>"
-        ]
-        for s in lec.get("sections", []):
-            vi_block = f"<div style='color:#495057; font-style:italic; margin-top:6px; border-top:1px dashed #ced4da; padding-top:4px;'>{s.get('vi', '')}</div>" if show_lec_vi else ""
-            html_chunks.append(
-                f"<div style='background:#f8f9fa; border-left:4px solid #0d6efd; padding:10px 12px; margin-bottom:12px; border-radius:4px;'>"
-                f"<div style='font-weight:bold; color:#0d6efd; margin-bottom:4px;'>{s.get('heading', '')}</div>"
-                f"<div style='color:#111; line-height:1.55;'>{s.get('en', '')}</div>"
-                f"{vi_block}"
-                f"</div>"
-            )
-        if lec.get("vocab"):
-            vocab_lis = "".join([f"<li><b>{v.get('word', '')}:</b> {v.get('mean', '')}</li>" for v in lec["vocab"]])
-            html_chunks.append(f"<div style='background:#e7f1ff; padding:10px; border-radius:6px;'><b>Từ vựng & Thuật ngữ trọng tâm:</b><ul style='margin-bottom:0;'>{vocab_lis}</ul></div>")
-        html_chunks.append("</div>")
-
-        st.markdown("".join(html_chunks), unsafe_allow_html=True)
-
-    # --------------------------------------------------------------------------
-    # MỤC 3: TỪ ĐIỂN & PHÁT ÂM CHUẨN NAM / NỮ
-    # --------------------------------------------------------------------------
-    elif active_menu == "dict":
-        col_d1, col_d2 = st.columns([3.5, 1])
-        with col_d1:
-            dict_word = st.text_input("Nhập từ vựng hoặc thuật ngữ tiếng Anh:", placeholder="VD: hypothesis, immigration, diagnostic...", key="dict_w_in")
-        with col_d2:
-            st.markdown("<div style='height: 26px;'></div>", unsafe_allow_html=True)
-            lookup_btn = st.button("Tra cứu Từ điển", type="primary", use_container_width=True)
-
-        if lookup_btn and dict_word.strip():
-            vi_res = translate_stable(dict_word, "en", "vi")
-            st.success(f"**{dict_word}**: {vi_res}")
-            c_v1, c_v2 = st.columns(2)
-            with c_v1:
-                if create_mp3(dict_word, "us Nam - Anh-Mỹ (Guy - Trầm ấm)", 0.95, "dict_male.mp3"):
-                    st.caption("Giọng Nam (Guy):")
-                    with open("dict_male.mp3", "rb") as f:
-                        st.audio(f.read(), format="audio/mp3")
-            with c_v2:
-                if create_mp3(dict_word, "us Nữ - Anh-Mỹ (Jenny - Truyền cảm)", 0.95, "dict_female.mp3"):
-                    st.caption("Giọng Nữ (Jenny):")
-                    with open("dict_female.mp3", "rb") as f:
-                        st.audio(f.read(), format="audio/mp3")
-
-    # --------------------------------------------------------------------------
-    # MỤC 4: GIA SƯ HỘI THOẠI SONG NGỮ
-    # --------------------------------------------------------------------------
-    elif active_menu == "chat":
-        col_c1, col_c2 = st.columns([3.5, 1])
-        with col_c1:
-            tutor_q = st.text_input("Nhập câu tiếng Việt cần diễn đạt hoặc câu tiếng Anh cần chỉnh sửa:", key="tutor_q_in")
-        with col_c2:
-            st.markdown("<div style='height: 26px;'></div>", unsafe_allow_html=True)
-            ask_btn = st.button("Hỏi Gia sư AI", type="primary", use_container_width=True)
-
-        if ask_btn and tutor_q.strip():
-            is_vi = bool(re.search(r'[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]', tutor_q, re.I))
-            if is_vi:
-                en_out = translate_stable(tutor_q, "vi", "en")
-                st.info(f"**Diễn đạt Tiếng Anh tự nhiên:** {en_out}")
-                if create_mp3(en_out, "us Nam - Anh-Mỹ (Guy - Trầm ấm)", 0.95, "tutor_out.mp3"):
-                    with open("tutor_out.mp3", "rb") as f:
-                        st.audio(f.read(), format="audio/mp3")
-            else:
-                vi_out = translate_stable(tutor_q, "en", "vi")
-                polished_en = translate_stable(vi_out, "vi", "en")
-                st.info(f"**Nghĩa tiếng Việt:** {vi_out}\n\n**Gợi ý diễn đạt chuẩn hơn:** {polished_en}")
-                if create_mp3(polished_en, "us Nữ - Anh-Mỹ (Jenny - Truyền cảm)", 0.95, "tutor_out_f.mp3"):
-                    with open("tutor_out_f.mp3", "rb") as f:
-                        st.audio(f.read(), format="audio/mp3")
+    components.html(final_tutor_html, height=880, scrolling=True)
