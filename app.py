@@ -35,6 +35,20 @@ st.markdown("""
         font-family: 'Times New Roman', Times, serif !important;
         font-size: 13px !important;
     }
+
+    .translated-box {
+        background-color: #e8f5e9;
+        border: 1px solid #c8e6c9;
+        border-radius: 8px;
+        padding: 14px;
+        min-height: 220px;
+        max-height: 350px;
+        overflow-y: auto;
+        color: #1b5e20;
+        font-size: 15px;
+        line-height: 1.6;
+        white-space: pre-wrap;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -60,7 +74,7 @@ VOICE_MAP = {
     "vn Nữ - Tiếng Việt (Hoài My)": "vi-VN-HoaiMyNeural"
 }
 
-# --- TAB 1 CORE (ĐÃ KHÓA BẢO VỆ NGUYÊN BẢN) ---
+# --- TAB 1 CORE (GIỮ NGUYÊN 100% LÕI DỊCH ỔN ĐỊNH) ---
 @st.cache_data(show_spinner=False, ttl=3600)
 def translate_stable(text, src_code, tgt_code):
     if not text.strip():
@@ -138,40 +152,46 @@ if not st.session_state["authenticated"]:
             st.rerun()
     st.stop()
 
-tab1, tab2 = st.tabs([
+tab1, tab2, tab3 = st.tabs([
     "💬 Dịch văn bản & Hội thoại", 
-    "🎙 Cabin Phiên dịch Trực tiếp"
+    "🎙 Cabin Phiên dịch Trực tiếp",
+    "🎓 Học Tiếng Anh cùng AI"
 ])
 
+# ==============================================================================
+# TAB 1: BỐ CỤC 2 CỘT NGANG HÀNG (TRÁI: VĂN BẢN GỐC | PHẢI: KẾT QUẢ DỊCH)
+# ==============================================================================
 with tab1:
     st.subheader("Dịch văn bản & Hội thoại chuyên sâu")
     
-    col_t1_src, col_t1_tgt = st.columns(2)
-    with col_t1_src:
-        src_lang_name_t1 = st.selectbox("Ngôn ngữ nguồn:", list(LANG_OPTIONS.keys()), index=0, key="t1_src")
-    with col_t1_tgt:
-        tgt_lang_name_t1 = st.selectbox("Ngôn ngữ đích:", list(LANG_OPTIONS.keys()), index=1, key="t1_tgt")
-
-    input_text = st.text_area("Nhập văn bản cần dịch:", height=150, placeholder="Dán văn bản cần dịch vào đây...", key="t1_input_text")
+    col_t1_left, col_t1_right = st.columns(2)
     
-    col_btn1, _ = st.columns([1, 5])
-    with col_btn1:
+    with col_t1_left:
+        src_lang_name_t1 = st.selectbox("Ngôn ngữ nguồn:", list(LANG_OPTIONS.keys()), index=0, key="t1_src")
+        input_text = st.text_area("Nhập văn bản cần dịch:", height=220, placeholder="Dán văn bản cần dịch vào đây...", key="t1_input_text")
         translate_clicked = st.button("Dịch ngay", key="btn_tab1", type="primary", use_container_width=True)
 
     if translate_clicked:
         if input_text.strip():
             with st.spinner("Đang dịch thuật văn bản..."):
                 src_code_t1 = LANG_OPTIONS[src_lang_name_t1]
-                tgt_code_t1 = LANG_OPTIONS[tgt_lang_name_t1]
+                tgt_code_t1 = LANG_OPTIONS[st.session_state.get("t1_tgt", "us Tiếng Anh (Mỹ)")]
                 res_text = translate_stable(input_text, src_code_t1, tgt_code_t1)
                 st.session_state["last_translation"] = res_text
         else:
             st.warning("Vui lòng nhập văn bản cần dịch.")
 
-    if "last_translation" in st.session_state and st.session_state["last_translation"]:
-        st.markdown("### Kết quả dịch:")
-        st.success(st.session_state["last_translation"])
+    with col_t1_right:
+        tgt_lang_name_t1 = st.selectbox("Ngôn ngữ đích:", list(LANG_OPTIONS.keys()), index=1, key="t1_tgt")
+        st.markdown('<p style="font-family: \'Times New Roman\', serif; font-size: 13px; font-weight: bold; margin-bottom: 6px;">Kết quả dịch:</p>', unsafe_allow_html=True)
+        
+        result_display = st.session_state.get("last_translation", "")
+        if result_display:
+            st.markdown(f'<div class="translated-box">{result_display}</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="translated-box" style="background-color: #f8f9fa; border-color: #dee2e6; color: #6c757d; font-style: italic;">Bản dịch sẽ hiển thị ngang hàng tại đây...</div>', unsafe_allow_html=True)
 
+    if "last_translation" in st.session_state and st.session_state["last_translation"]:
         st.markdown("---")
         st.markdown("### Cài đặt Âm thanh & Tải về:")
         
@@ -199,6 +219,9 @@ with tab1:
             except Exception:
                 pass
 
+# ==============================================================================
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (GIỮ NGUYÊN 100% BẢN ĐÃ CHẠY TỐT)
+# ==============================================================================
 with tab2:
     st.subheader("Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
 
@@ -441,76 +464,4 @@ with tab2:
                 let isFinalChunk = false;
 
                 for (let i = event.resultIndex; i < event.results.length; ++i) {{
-                    latestText += event.results[i][0].transcript;
-                    if (event.results[i].isFinal) {{
-                        isFinalChunk = true;
-                    }}
-                }}
-
-                currentSpeechBuffer = latestText.trim();
-
-                if (isFinalChunk && currentSpeechBuffer) {{
-                    commitSentence(currentSpeechBuffer);
-                    return;
-                }}
-
-                if (currentSpeechBuffer) {{
-                    renderUI(currentSpeechBuffer);
-
-                    clearTimeout(interimTimer);
-                    interimTimer = setTimeout(async () => {{
-                        let t_interim = await fetchTranslation(currentSpeechBuffer);
-                        if (t_interim) {{
-                            renderUI(currentSpeechBuffer, t_interim.trim());
-                        }}
-                    }}, 120);
-
-                    let wordCount = currentSpeechBuffer.split(/\s+/).length;
-                    let timeoutDuration = wordCount > 10 ? 800 : 1200;
-
-                    pauseTimer = setTimeout(() => {{
-                        if (currentSpeechBuffer) {{
-                            commitSentence(currentSpeechBuffer);
-                            try {{
-                                recognition.stop();
-                            }} catch(e) {{}}
-                        }}
-                    }}, timeoutDuration);
-                }}
-            }};
-
-            recognition.onend = function() {{
-                if (isRunning) {{
-                    try {{ recognition.start(); }} catch (e) {{}}
-                }} else {{
-                    document.getElementById('status-badge').innerText = 'Trạng thái: Đã dừng hệ thống cabin.';
-                    document.getElementById('start-btn').disabled = false;
-                    document.getElementById('stop-btn').disabled = true;
-                }}
-            }};
-        }}
-
-        function startCabin() {{
-            if (recognition) {{
-                isRunning = true;
-                origSegments = [];
-                transSegments = [];
-                currentSpeechBuffer = "";
-                try {{ recognition.start(); }} catch (e) {{}}
-            }}
-        }}
-
-        function stopCabin() {{
-            isRunning = false;
-            clearTimeout(pauseTimer);
-            if (currentSpeechBuffer) {{
-                commitSentence(currentSpeechBuffer);
-            }}
-            if (recognition) {{ recognition.stop(); }}
-        }}
-    </script>
-    </body>
-    </html>
-    """
-
-    components.html(cabin_html_code, height=750)
+                    latestText += event.results
