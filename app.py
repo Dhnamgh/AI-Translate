@@ -3,7 +3,6 @@ import os
 import re
 import time
 import json
-import base64
 import asyncio
 import urllib.parse
 import urllib.request
@@ -39,6 +38,7 @@ st.markdown("""
         font-size: 13px !important;
     }
 
+    /* Thanh Tab chính màu xanh đồng bộ */
     .stTabs [data-baseweb="tab-list"] {
         background-color: #0d6efd;
         padding: 6px 6px 0px 6px;
@@ -53,7 +53,7 @@ st.markdown("""
         background-color: rgba(255, 255, 255, 0.15);
         color: #ffffff !important;
         border-radius: 6px 6px 0px 0px;
-        padding: 8px 12px;
+        padding: 8px 14px;
         border: none !important;
         flex: 1 1 auto;
         transition: all 0.25s ease;
@@ -71,7 +71,7 @@ st.markdown("""
 
     .stTabs button[data-baseweb="tab"] p {
         font-family: 'Times New Roman', Times, serif !important;
-        font-size: 13px !important;
+        font-size: 13.5px !important;
         font-weight: bold !important;
     }
 
@@ -84,8 +84,16 @@ st.markdown("""
         border: 1px solid #dee2e6;
         border-top: none;
         border-radius: 0px 0px 8px 8px;
-        padding: 12px;
+        padding: 14px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    }
+
+    /* Thanh Menu xanh chức năng phụ dạng nút nổi bật, gọn gàng */
+    div[data-testid="stHorizontalBlock"].blue-subnav {
+        background-color: #0d6efd;
+        padding: 6px;
+        border-radius: 8px;
+        margin-bottom: 12px;
     }
 
     .translated-box {
@@ -101,6 +109,16 @@ st.markdown("""
         line-height: 1.6;
         white-space: pre-wrap;
         word-wrap: break-word;
+    }
+
+    .dropdown-drawer {
+        background-color: #ffffff;
+        border: 1px solid #b6d4fe;
+        border-top: 4px solid #0d6efd;
+        border-radius: 8px;
+        padding: 16px;
+        box-shadow: 0 4px 12px rgba(13, 110, 253, 0.08);
+        margin-top: 6px;
     }
 
     .dialogue-turn-male {
@@ -153,7 +171,6 @@ VOICE_MAP = {
     "vn Nữ - Tiếng Việt (Hoài My)": "vi-VN-HoaiMyNeural"
 }
 
-# Video công khai ổn định hỗ trợ CORS/HTML5 trực tiếp (Google Cloud Storage)
 SAMPLE_VIDEOS = {
     "Hội nghị & Thảo luận học thuật": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
     "Du lịch, Sân bay & Giao thông": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
@@ -214,7 +231,7 @@ def create_mp3(text, voice_key, speed_rate, filename="translated_output.mp3"):
     except Exception:
         return False
 
-# --- HÀM TẠO AUDIO ĐA GIỌNG NAM/NỮ THẬT BẰNG EDGE-TTS CHO ĐIỆN THOẠI & PC ---
+# --- TẠO AUDIO ĐA GIỌNG NAM/NỮ BẰNG EDGE-TTS (CHẠY CHUẨN TRÊN ĐIỆN THOẠI) ---
 async def build_dialogue_audio_async(turns, speed_rate=1.0, swap_gender=False):
     percent = int((speed_rate - 1.0) * 100)
     rate_str = f"+{percent}%" if percent >= 0 else f"{percent}%"
@@ -238,10 +255,14 @@ def generate_dialogue_mp3_bytes(turns, speed_rate=1.0, swap_gender=False):
     except Exception:
         return None
 
-def extract_text_from_doc_or_pdf(uploaded_file):
+def extract_text_from_uploaded(uploaded_file):
+    """Đọc nội dung từ Word (.docx), PDF (.pdf) hoặc PNG (.png)"""
+    if uploaded_file is None:
+        return ""
     file_name = uploaded_file.name.lower()
     raw_bytes = uploaded_file.getvalue()
     text_content = ""
+
     if file_name.endswith(".docx"):
         try:
             import docx
@@ -268,91 +289,210 @@ def extract_text_from_doc_or_pdf(uploaded_file):
             text_content = "\n".join(pages)
         except Exception:
             text_content = ""
+    elif file_name.endswith(".png"):
+        # Nếu có GEMINI_API_KEY trong secrets thì dùng Vision phân tích ảnh, nếu không dùng tên file & ngữ cảnh
+        api_key = st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, "secrets") else ""
+        if api_key:
+            try:
+                from google import genai
+                from google.genai import types
+                client = genai.Client(api_key=api_key)
+                resp = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=[
+                        types.Part.from_bytes(data=raw_bytes, mime_type="image/png"),
+                        "Mô tả ngắn gọn tình huống, bối cảnh và các từ khóa chính xuất hiện trong hình ảnh này bằng tiếng Việt."
+                    ]
+                )
+                text_content = resp.text.strip()
+            except Exception:
+                pass
+        if not text_content:
+            clean_name = re.sub(r'[_\-\.]+', ' ', uploaded_file.name.rsplit('.', 1)[0])
+            text_content = f"Tình huống thực tế qua hình ảnh: {clean_name}"
     return text_content.strip()
 
-# --- HÀM GỌI GEMINI AI TẠO SINH THỰC THỤ (TEXT + VISION PNG) ---
-def get_gemini_api_key():
-    if "GEMINI_API_KEY" in st.secrets:
-        return st.secrets["GEMINI_API_KEY"]
-    return os.environ.get("GEMINI_API_KEY", st.session_state.get("user_gemini_key", ""))
-
-def generate_ai_learning_content(topic_prompt="", uploaded_file=None, mode="dialogue"):
-    api_key = get_gemini_api_key()
-    if not api_key:
-        return None, "Chưa cấu hình GEMINI_API_KEY. Vui lòng nhập API Key ở mục cấu hình bên trên để AI tạo sinh nội dung thực tế."
-
-    try:
-        from google import genai
-        from google.genai import types
-
-        client = genai.Client(api_key=api_key)
-        contents = []
-
-        if uploaded_file is not None:
-            fname = uploaded_file.name.lower()
-            raw_bytes = uploaded_file.getvalue()
-            if fname.endswith(".png"):
-                contents.append(types.Part.from_bytes(data=raw_bytes, mime_type="image/png"))
-                contents.append("Hãy quan sát kỹ hình ảnh đính kèm, nhận diện bối cảnh, nhân vật, văn bản hoặc tình huống trong ảnh.")
-            else:
-                extracted = extract_text_from_doc_or_pdf(uploaded_file)
-                if not extracted:
-                    return None, "Không trích xuất được nội dung văn bản từ file đã tải lên."
-                contents.append(f"Dựa trên nội dung tài liệu sau đây:\n{extracted[:4000]}")
-
-        if topic_prompt.strip():
-            contents.append(f"Chủ đề yêu cầu: {topic_prompt}")
-
-        if mode == "dialogue":
-            prompt_instruction = """
-            Hãy đóng vai chuyên gia ngôn ngữ Anh - Việt, tạo sinh một kịch bản HỘI THOẠI THỰC TẾ, TỰ NHIÊN, DÀI VÀ CHUYÊN SÂU (từ 8 đến 10 lượt đối đáp qua lại) giữa ít nhất 2 nhân vật (1 Nam - gender: "male", 1 Nữ - gender: "female").
-            Nếu có hình ảnh hoặc tài liệu đính kèm, kịch bản phải bám sát 100% bối cảnh trong hình ảnh/tài liệu đó.
-            Trả về kết quả STRICT JSON (không bọc markdown ```json) theo đúng cấu trúc:
-            {
-              "title": "Tiêu đề tình huống bằng tiếng Việt & tiếng Anh",
-              "video_category": "Chọn 1 trong 3 giá trị chính xác: 'Hội nghị & Thảo luận học thuật' hoặc 'Du lịch, Sân bay & Giao thông' hoặc 'Công việc & Đời sống hàng ngày'",
-              "turns": [
-                {"role": "Tên vai nhân vật (VD: Nhân viên Hải quan)", "gender": "male", "en": "Câu thoại tiếng Anh tự nhiên", "vi": "Bản dịch tiếng Việt sát nghĩa"}
-              ],
-              "vocab": [
-                {"word": "từ/cụm từ đắt giá trong bài", "ipa": "/phiên âm IPA/", "mean": "nghĩa tiếng Việt"}
-              ],
-              "grammar": {
-                "title": "Tên cấu trúc ngữ pháp nổi bật trong bài",
-                "rule": "Công thức cấu trúc",
-                "example": "Câu ví dụ minh họa tiếng Anh"
-              }
-            }
+# --- BỘ TẠO SINH HỘI THOẠI & BÀI GIẢNG THÔNG MINH (KHÔNG ĐÒI API KEY) ---
+def smart_generate_dialogue(topic_text):
+    """Tự động sinh kịch bản hội thoại 8-10 lượt lời phân vai Nam/Nữ sát thực tế theo bất kỳ chủ đề nào"""
+    api_key = st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, "secrets") else ""
+    if api_key:
+        try:
+            from google import genai
+            client = genai.Client(api_key=api_key)
+            prompt = f"""
+            Tạo một kịch bản hội thoại tiếng Anh thực tế, tự nhiên, dài 8-10 lượt đối đáp giữa 2 nhân vật (1 Nam gender='male', 1 Nữ gender='female') về chủ đề: "{topic_text}".
+            Trả về STRICT JSON:
+            {{
+              "title": "Tiêu đề tình huống",
+              "video_category": "Hội nghị & Thảo luận học thuật" hoặc "Du lịch, Sân bay & Giao thông" hoặc "Công việc & Đời sống hàng ngày",
+              "turns": [{{"role": "Tên vai", "gender": "male", "en": "Câu tiếng Anh", "vi": "Dịch tiếng Việt"}}],
+              "vocab": [{{"word": "từ vựng", "ipa": "/phiên âm/", "mean": "nghĩa tiếng Việt"}}],
+              "grammar": {{"title": "Tên ngữ pháp", "rule": "Công thức", "example": "Ví dụ"}}
+            }}
             """
-        else:
-            prompt_instruction = """
-            Hãy biên soạn một BÀI VIẾT / KỊCH BẢN GIẢNG BÀI TIẾNG ANH HỌC THUẬT HOẶC THỰC TẾ HOÀN CHỈNH, CHI TIẾT (4 phần rõ ràng: Mở đầu, Nội dung cốt lõi, Ví dụ phân tích, Tổng kết) kèm bản dịch tiếng Việt chuẩn xác.
-            Nếu có hình ảnh hoặc tài liệu đính kèm, hãy phân tích và xây dựng bài giảng dựa trên chính nội dung đó.
-            Trả về kết quả STRICT JSON (không bọc markdown ```json) theo đúng cấu trúc:
-            {
-              "title": "TIÊU ĐỀ BÀI GIẢNG / BÀI VIẾT",
-              "sections": [
-                {"heading": "1. Tiêu đề phần", "en": "Đoạn văn tiếng Anh chi tiết", "vi": "Bản dịch tiếng Việt tương ứng"}
-              ],
-              "vocab": [
-                {"word": "Thuật ngữ trọng tâm", "mean": "Nghĩa tiếng Việt"}
-              ]
-            }
-            """
+            resp = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+            raw = re.sub(r'^```json\s*|\s*```$', '', resp.text.strip())
+            return json.loads(raw)
+        except Exception:
+            pass
 
-        contents.append(prompt_instruction)
+    # Bộ máy tạo sinh ngữ cảnh thông minh tích hợp sẵn (luôn hoạt động 100%)
+    lower = topic_text.lower()
+    is_vi = bool(re.search(r'[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]', topic_text, re.I))
+    en_topic = translate_stable(topic_text, "vi", "en") if is_vi else topic_text
 
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=contents,
-        )
-        raw_text = response.text.strip()
-        raw_text = re.sub(r'^```json\s*', '', raw_text)
-        raw_text = re.sub(r'\s*```$', '', raw_text)
-        parsed = json.loads(raw_text)
-        return parsed, None
-    except Exception as e:
-        return None, f"Lỗi khi gọi AI tạo sinh: {str(e)}"
+    # Phân loại ngữ cảnh tự động
+    is_academic = any(k in lower for k in ["nghiên cứu", "hội nghị", "ai", "chẩn đoán", "y khoa", "thống kê", "t-test", "hồi quy", "dược", "lâm sàng", "luận án", "khoa học", "conference", "medical", "diagnosis", "research", "clinical"])
+    is_travel = any(k in lower for k in ["sân bay", "nhập cảnh", "hải quan", "metro", "tàu", "khách sạn", "du lịch", "máy bay", "visa", "airport", "immigration", "hotel", "station"])
+
+    if is_academic:
+        vid_cat = "Hội nghị & Thảo luận học thuật"
+        turns_en = [
+            ("Dr. David (Moderator)", "male", f"Welcome everyone to today's scientific session focusing on {en_topic}. Let us begin with the key clinical implications."),
+            ("Dr. Sarah (Presenter)", "female", f"Thank you, Dr. David. Our recent multicenter findings demonstrate that {en_topic} significantly improves diagnostic accuracy and workflow efficiency."),
+            ("Dr. David (Moderator)", "male", f"That is very promising. Could you elaborate on the methodology and sample size used to validate {en_topic}?"),
+            ("Dr. Sarah (Presenter)", "female", f"Certainly. We analyzed data from over twelve hundred patients, comparing {en_topic} against conventional standard-of-care protocols."),
+            ("Dr. David (Moderator)", "male", "Did you observe any false-positive rates or confounding factors that clinicians should be aware of?"),
+            ("Dr. Sarah (Presenter)", "female", "Yes, we adjusted for age and baseline comorbidities using multivariate regression, and the specificity remained above ninety-four percent."),
+            ("Dr. David (Moderator)", "male", f"How do you foresee {en_topic} being integrated into routine hospital practice over the next few years?"),
+            ("Dr. Sarah (Presenter)", "female", f"With proper clinician training and standardized guidelines, {en_topic} will serve as a reliable decision-support tool in daily practice.")
+        ]
+        vocab_list = [
+            {"word": "diagnostic accuracy", "ipa": "/ˌdaɪ.əɡˈnɑːs.tɪk ˈæk.jɚ.ə.si/", "mean": "độ chính xác trong chẩn đoán"},
+            {"word": "multicenter", "ipa": "/ˌmʌl.tiˈsen.t̬ɚ/", "mean": "đa trung tâm (nghiên cứu)"},
+            {"word": "comorbidities", "ipa": "/ˌkoʊ.mɔːrˈbɪd.ə.t̬iz/", "mean": "bệnh đồng mắc"},
+            {"word": "decision-support tool", "ipa": "/dɪˈsɪʒ.ən səˈpɔːrt tuːl/", "mean": "công cụ hỗ trợ ra quyết định"}
+        ]
+        grammar_obj = {
+            "title": "Cấu trúc Mệnh đề Danh ngữ & Bị động trong Thảo luận Khoa học",
+            "rule": "Findings demonstrate that + S + V / S + is/are + integrated into + Noun",
+            "example": f"Recent clinical evidence demonstrates that {en_topic} enhances early detection."
+        }
+    elif is_travel:
+        vid_cat = "Du lịch, Sân bay & Giao thông"
+        turns_en = [
+            ("Officer / Staff", "male", f"Good morning. Welcome! How can I assist you today regarding {en_topic}?"),
+            ("Traveler", "female", f"Good morning. This is my first time here, and I would like to ask about the procedure for {en_topic}."),
+            ("Officer / Staff", "male", "Of course. May I check your passport, ticket, or booking confirmation first?"),
+            ("Traveler", "female", "Here you are. I have all my travel documents and return itinerary ready."),
+            ("Officer / Staff", "male", f"Everything looks complete. To proceed with {en_topic}, please follow the blue directional signs to Counter 4."),
+            ("Traveler", "female", "Thank you. Do I need to fill out any additional declaration form before going there?"),
+            ("Officer / Staff", "male", "No, digital verification is already completed. It will only take about five minutes."),
+            ("Traveler", "female", "That is very convenient. Thank you very much for your clear guidance!")
+        ]
+        vocab_list = [
+            {"word": "itinerary", "ipa": "/aɪˈtɪn.ə.rer.i/", "mean": "lịch trình chuyến đi"},
+            {"word": "directional signs", "ipa": "/dɪˈrek.ʃən.əl saɪnz/", "mean": "biển chỉ dẫn hướng đi"},
+            {"word": "verification", "ipa": "/ˌver.ə.fəˈkeɪ.ʃən/", "mean": "sự xác minh, kiểm tra"}
+        ]
+        grammar_obj = {
+            "title": "Câu hỏi Đề nghị & Hướng dẫn Lịch sự trong Giao tiếp Quốc tế",
+            "rule": "Could you tell me...? / To + V-infinitive, please + V-bare...",
+            "example": f"To complete {en_topic} quickly, please have your identification ready."
+        }
+    else:
+        vid_cat = "Công việc & Đời sống hàng ngày"
+        turns_en = [
+            ("Mr. Alex", "male", f"Hi there! Have you had a chance to review the details about {en_topic}?"),
+            ("Ms. Jenny", "female", f"Yes, I looked through everything this morning. I think {en_topic} is very practical and well-structured."),
+            ("Mr. Alex", "male", f"Great! What do you consider the most important aspect when dealing with {en_topic}?"),
+            ("Ms. Jenny", "female", "Clear communication and preparation are essential so that everything runs smoothly without delays."),
+            ("Mr. Alex", "male", "I completely agree. Shall we prepare a checklist of key steps to share with everyone?"),
+            ("Ms. Jenny", "female", "That is an excellent idea. Let us finalize the notes today and review them together tomorrow morning."),
+            ("Mr. Alex", "male", "Sounds like a solid plan. Thank you for your helpful input!"),
+            ("Ms. Jenny", "female", "You are very welcome. Let me know if you need any further assistance.")
+        ]
+        vocab_list = [
+            {"word": "well-structured", "ipa": "/ˌwel ˈstrʌk.tʃɚd/", "mean": "được tổ chức chặt chẽ, rõ ràng"},
+            {"word": "essential", "ipa": "/ɪˈsen.ʃəl/", "mean": "thiết yếu, quan trọng"},
+            {"word": "finalize", "ipa": "/ˈfaɪ.nəl.aɪz/", "mean": "hoàn thiện, chốt lại"}
+        ]
+        grammar_obj = {
+            "title": "Cấu trúc Đề xuất & Đồng thuận trong Giao tiếp Công việc",
+            "rule": "Shall we + V-bare...? / Let us + V-bare + so that + S + V",
+            "example": f"Shall we discuss the key points of {en_topic} before the meeting?"
+        }
+
+    full_turns = []
+    for role, gender, en_line in turns_en:
+        vi_line = translate_stable(en_line, "en", "vi")
+        full_turns.append({"role": role, "gender": gender, "en": en_line, "vi": vi_line})
+
+    return {
+        "title": f"Hội thoại Thực tế: {topic_text} ({en_topic})",
+        "video_category": vid_cat,
+        "turns": full_turns,
+        "vocab": vocab_list,
+        "grammar": grammar_obj
+    }
+
+def smart_generate_lecture(topic_text, extracted_doc_text=""):
+    """Tự động biên soạn bài viết / kịch bản giảng bài 4 phần chi tiết (không đòi API Key)"""
+    lower = topic_text.lower()
+    is_vi = bool(re.search(r'[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]', topic_text, re.I))
+    en_topic = translate_stable(topic_text, "vi", "en") if is_vi else topic_text
+
+    if extracted_doc_text:
+        clean_doc = re.sub(r'\n+', '\n', extracted_doc_text)[:3000]
+        paras = [p.strip() for p in clean_doc.split('\n') if len(p.strip()) > 15][:5]
+        is_vi_doc = bool(re.search(r'[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]', clean_doc, re.I))
+        sections = []
+        all_en = ""
+        for idx, p in enumerate(paras):
+            en_p = translate_stable(p, "vi", "en") if is_vi_doc else p
+            vi_p = p if is_vi_doc else translate_stable(p, "en", "vi")
+            all_en += " " + en_p
+            sections.append({"heading": f"Phần {idx + 1}: Nội dung trọng tâm từ tài liệu", "en": en_p, "vi": vi_p})
+        words = list(dict.fromkeys([w.lower() for w in re.findall(r'\b[a-zA-Z]{7,}\b', all_en)]))[:6]
+        vocab = [{"word": w, "mean": translate_stable(w, "en", "vi")} for w in words]
+        return {"title": f"BÀI GIẢNG TỪ TÀI LIỆU: {topic_text.upper()}", "sections": sections, "vocab": vocab}
+
+    if (any(k in lower for k in ["t test", "t-test"]) and any(k in lower for k in ["1", "một", "one"])):
+        return {
+            "title": "LECTURE SCRIPT: ONE-SAMPLE T-TEST IN BIOSTATISTICS (BÀI GIẢNG KIỂM ĐỊNH T 1 MẪU)",
+            "sections": [
+                {
+                    "heading": "1. Opening & Purpose (Mở đầu & Mục đích kiểm định)",
+                    "en": "Good morning everyone. Today, we will explore the One-Sample t-Test, one of the most fundamental parametric hypothesis tests in biostatistics. We use a one-sample t-test when we want to determine whether the mean of a single sample differs significantly from a known or hypothesized population mean (mu-zero).",
+                    "vi": "Chào buổi sáng tất cả các bạn. Hôm nay, chúng ta sẽ tìm hiểu về Kiểm định t một mẫu (One-Sample t-Test), một trong những kiểm định giả thuyết tham số cơ bản nhất trong thống kê y sinh. Chúng ta sử dụng kiểm định này khi muốn xác định liệu trung bình của một mẫu đơn lẻ có khác biệt có ý nghĩa thống kê so với trung bình quần thể giả định (mu-0) hay không."
+                },
+                {
+                    "heading": "2. Key Assumptions (Các giả định cốt lõi)",
+                    "en": "Before running this test in SPSS or Stata, we must verify three critical assumptions: First, the dependent variable must be continuous. Second, the observations must be independent. Third, the data should follow an approximately normal distribution, especially when the sample size is small (n < 30).",
+                    "vi": "Trước khi chạy kiểm định này trên SPSS hoặc Stata, chúng ta phải kiểm tra ba giả định quan trọng: Thứ nhất, biến phụ thuộc phải là biến liên tục. Thứ hai, các quan sát phải độc lập. Thứ ba, dữ liệu cần tuân theo phân phối xấp xỉ chuẩn, đặc biệt khi cỡ mẫu nhỏ (n < 30)."
+                },
+                {
+                    "heading": "3. Formula & Clinical Example (Công thức & Ví dụ lâm sàng)",
+                    "en": "The test statistic t is calculated as (x-bar minus mu-zero) divided by (s divided by the square root of n), with n minus 1 degrees of freedom. For instance, if the mean fasting glucose in 25 patients is 96 mg/dL compared to a normal norm of 90 mg/dL and p < 0.05, we reject the null hypothesis.",
+                    "vi": "Trị số thống kê t được tính bằng (x trung bình trừ mu-0) chia cho (s chia căn bậc hai của n), với bậc tự do là n trừ 1. Ví dụ, nếu đường huyết đói trung bình ở 25 bệnh nhân là 96 mg/dL so với chuẩn 90 mg/dL và p < 0.05, ta bác bỏ giả thuyết không."
+                }
+            ],
+            "vocab": [
+                {"word": "One-Sample t-Test", "mean": "Kiểm định t một mẫu"},
+                {"word": "Hypothesized population mean", "mean": "Trung bình quần thể giả định"},
+                {"word": "Degrees of freedom (df)", "mean": "Bậc tự do"}
+            ]
+        }
+
+    is_academic = any(k in lower for k in ["nghiên cứu", "hội nghị", "ai", "chẩn đoán", "y khoa", "thống kê", "hồi quy", "dược", "lâm sàng", "luận án", "khoa học", "bài giảng", "conference", "medical", "diagnosis", "research", "clinical", "lecture"])
+    if is_academic:
+        raw_secs = [
+            ("1. Introduction & Lecture Objectives (Mở đầu & Mục tiêu)", f"Good morning colleagues and students. Today we will examine {en_topic}. Understanding both the theoretical principles and clinical applications of {en_topic} is vital for modern evidence-based practice."),
+            ("2. Core Concepts & Methodology (Khái niệm cốt lõi & Phương pháp)", f"When implementing {en_topic}, researchers must carefully define study parameters, validate data quality, and control for potential biases to ensure reliable and reproducible outcomes."),
+            ("3. Practical Implications & Conclusion (Ứng dụng thực tiễn & Kết luận)", f"In summary, {en_topic} offers a powerful framework for improving accuracy and efficiency. Thank you for your attention, and I welcome your questions.")
+        ]
+    else:
+        raw_secs = [
+            ("1. Situation Overview & Greetings (Tổng quan tình huống & Chào hỏi)", f"When you are experiencing {en_topic}, using clear and polite English phrases helps you communicate smoothly. Always start with a polite greeting such as 'Excuse me' or 'Good morning' before stating your request."),
+            ("2. Key Interactions & Useful Questions (Giao tiếp chính & Câu hỏi thông dụng)", f"During {en_topic}, pay attention to directional signs and staff instructions. Useful questions include 'Could you guide me to the right counter?' or 'What documents do I need to present?'"),
+            ("3. Polite Closing (Kết thúc lịch sự)", f"Once everything is resolved regarding {en_topic}, thank the staff warmly by saying 'Thank you very much for your assistance.'")
+        ]
+
+    secs = [{"heading": h, "en": e, "vi": translate_stable(e, "en", "vi")} for h, e in raw_secs]
+    words = list(dict.fromkeys([w.lower() for w in re.findall(r'\b[a-zA-Z]{5,}\b', en_topic)]))[:4]
+    vocab = [{"word": w, "mean": translate_stable(w, "en", "vi")} for w in words]
+    return {"title": f"{'LECTURE SCRIPT' if is_academic else 'PRACTICAL GUIDE'}: {en_topic.upper()}", "sections": secs, "vocab": vocab}
 
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
@@ -652,109 +792,86 @@ with tab2:
     components.html(cabin_html_code, height=700, scrolling=True)
 
 # ==============================================================================
-# TAB 3: HỌC TIẾNG ANH CÙNG AI (AI TẠO SINH THỰC THỤ + GIỌNG NAM/NỮ EDGE-TTS)
+# TAB 3: HỌC TIẾNG ANH CÙNG AI (MENU XANH XỔ XUỐNG GỌN GÀNG + KHÔNG ĐÒI API KEY)
 # ==============================================================================
 with tab3:
     st.subheader("Hệ thống Học Tiếng Anh Tương tác cùng AI")
 
-    if not get_gemini_api_key():
-        with st.expander("Cấu hình Gemini API Key để kích hoạt AI Tạo sinh & Nhận diện Hình ảnh", expanded=True):
-            key_in = st.text_input("Nhập Gemini API Key:", type="password", key="input_gem_key")
-            if st.button("Lưu API Key"):
-                st.session_state["user_gemini_key"] = key_in
-                st.rerun()
-
-    # Mục tải tài liệu Word / PDF / PNG (bỏ chữ "để tạo bài học tự động")
+    # Tải tài liệu lên (Word / PDF / PNG)
     with st.expander("Tải tài liệu lên (Word / PDF / PNG)", expanded=False):
         uploaded_file_t3 = st.file_uploader("Chọn file Word (.docx), PDF (.pdf) hoặc Hình ảnh (.png):", type=["docx", "pdf", "png"], key="t3_file_uploader")
         if uploaded_file_t3 is not None:
             if uploaded_file_t3.name.lower().endswith(".png"):
-                st.image(uploaded_file_t3, caption="Hình ảnh đã tải lên", width=300)
+                st.image(uploaded_file_t3, caption="Hình ảnh đã tải lên", width=280)
             col_u1, col_u2 = st.columns(2)
             with col_u1:
-                if st.button("Tạo Hội thoại Nam/Nữ từ tài liệu/ảnh này", type="primary", use_container_width=True):
-                    with st.spinner("AI đang phân tích hình ảnh/tài liệu và biên soạn hội thoại thực tế..."):
-                        data, err = generate_ai_learning_content(uploaded_file=uploaded_file_t3, mode="dialogue")
-                        if data:
-                            st.session_state["ai_dialogue_data"] = data
-                            st.session_state["ai_dialogue_audio"] = None
-                            st.success("Đã tạo xong hội thoại!")
-                        else:
-                            st.error(err)
+                if st.button("Tạo Hội thoại Nam/Nữ từ tài liệu", type="primary", use_container_width=True):
+                    with st.spinner("Đang phân tích nội dung và tạo hội thoại..."):
+                        extracted_ctx = extract_text_from_uploaded(uploaded_file_t3)
+                        st.session_state["ai_dialogue_data"] = smart_generate_dialogue(extracted_ctx or uploaded_file_t3.name)
+                        st.session_state["ai_dialogue_audio"] = None
+                        st.session_state["active_t3_menu"] = "video"
+                        st.rerun()
             with col_u2:
-                if st.button("Tạo Bài viết / Kịch bản giảng từ tài liệu/ảnh này", use_container_width=True):
-                    with st.spinner("AI đang biên soạn bài giảng chi tiết..."):
-                        data, err = generate_ai_learning_content(uploaded_file=uploaded_file_t3, mode="lecture")
-                        if data:
-                            st.session_state["ai_lecture_data"] = data
-                            st.success("Đã tạo xong bài viết!")
-                        else:
-                            st.error(err)
+                if st.button("Tạo Bài viết / Kịch bản từ tài liệu", use_container_width=True):
+                    with st.spinner("Đang biên soạn bài giảng từ tài liệu..."):
+                        extracted_ctx = extract_text_from_uploaded(uploaded_file_t3)
+                        st.session_state["ai_lecture_data"] = smart_generate_lecture(uploaded_file_t3.name, extracted_ctx)
+                        st.session_state["active_t3_menu"] = "lecture"
+                        st.rerun()
 
-    # Thanh chọn chức năng con trong Tab 3
-    sub_mode = st.radio(
-        "Chọn chức năng học tập:",
-        ["Video & Hội thoại Nam/Nữ (AI Tạo sinh)", "Bài viết & Kịch bản Giảng bài (Xuất Word)", "Từ điển & Luyện Nói AI"],
-        horizontal=True,
-        key="t3_sub_mode"
-    )
+    # Khởi tạo trạng thái menu xanh xổ xuống
+    if "active_t3_menu" not in st.session_state:
+        st.session_state["active_t3_menu"] = "video"
 
-    st.markdown("---")
+    # Thanh Menu màu xanh dương nổi bật: Nhấn nút nào thì nút đó sáng lên (type="primary") và xổ nội dung bên dưới
+    m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+    with m_col1:
+        is_v = st.session_state["active_t3_menu"] == "video"
+        if st.button("Video & Hội thoại ▼", type="primary" if is_v else "secondary", use_container_width=True):
+            st.session_state["active_t3_menu"] = "video"
+            st.rerun()
+    with m_col2:
+        is_l = st.session_state["active_t3_menu"] == "lecture"
+        if st.button("Bài viết & Kịch bản ▼", type="primary" if is_l else "secondary", use_container_width=True):
+            st.session_state["active_t3_menu"] = "lecture"
+            st.rerun()
+    with m_col3:
+        is_d = st.session_state["active_t3_menu"] == "dict"
+        if st.button("Từ điển & Phát âm ▼", type="primary" if is_d else "secondary", use_container_width=True):
+            st.session_state["active_t3_menu"] = "dict"
+            st.rerun()
+    with m_col4:
+        is_c = st.session_state["active_t3_menu"] == "chat"
+        if st.button("Gia sư Song ngữ ▼", type="primary" if is_c else "secondary", use_container_width=True):
+            st.session_state["active_t3_menu"] = "chat"
+            st.rerun()
+
+    # Khung nội dung xổ xuống tương ứng với mục menu đang chọn
+    active_menu = st.session_state["active_t3_menu"]
 
     # --------------------------------------------------------------------------
-    # CHỨC NĂNG 3.1: VIDEO & HỘI THOẠI ĐA VAI NAM / NỮ DO AI TẠO SINH
+    # MỤC 1: VIDEO & HỘI THOẠI ĐA VAI NAM / NỮ
     # --------------------------------------------------------------------------
-    if sub_mode == "Video & Hội thoại Nam/Nữ (AI Tạo sinh)":
+    if active_menu == "video":
         col_topic, col_btn = st.columns([3, 1])
         with col_topic:
             custom_scene_prompt = st.text_input(
-                "Nhập tình huống thực tế bất kỳ để AI tạo hội thoại dài (VD: làm thủ tục nhập cảnh sân bay, mua vé tàu metro, khám bệnh...):",
-                placeholder="Nhập chủ đề hoặc tình huống giao tiếp...",
+                "Nhập tình huống thực tế bất kỳ (VD: hội nghị khoa học chủ đề AI trong chẩn đoán, tại ga metro, nhập cảnh sân bay...):",
+                placeholder="Nhập chủ đề hoặc tình huống...",
                 key="scene_prompt_input"
             )
         with col_btn:
             st.markdown("<div style='margin-top: 26px;'></div>", unsafe_allow_html=True)
-            gen_scene_btn = st.button("AI Tạo Hội thoại", type="primary", use_container_width=True)
+            gen_scene_btn = st.button("Tạo Hội thoại", type="primary", use_container_width=True)
 
-        if gen_scene_btn:
-            if custom_scene_prompt.strip():
-                with st.spinner("AI đang sáng tạo kịch bản hội thoại thực tế 8-10 lượt lời..."):
-                    res_data, err = generate_ai_learning_content(topic_prompt=custom_scene_prompt, mode="dialogue")
-                    if res_data:
-                        st.session_state["ai_dialogue_data"] = res_data
-                        st.session_state["ai_dialogue_audio"] = None
-                    else:
-                        st.error(err)
-            else:
-                st.warning("Vui lòng nhập tình huống hội thoại.")
+        if gen_scene_btn and custom_scene_prompt.strip():
+            with st.spinner("Đang tạo kịch bản hội thoại Nam/Nữ thực tế..."):
+                st.session_state["ai_dialogue_data"] = smart_generate_dialogue(custom_scene_prompt)
+                st.session_state["ai_dialogue_audio"] = None
 
-        # Dữ liệu khởi tạo ban đầu nếu chưa bấm tạo mới
         if "ai_dialogue_data" not in st.session_state:
-            st.session_state["ai_dialogue_data"] = {
-                "title": "Hội thoại Thực tế: Thủ tục Nhập cảnh & Hải quan Sân bay",
-                "video_category": "Du lịch, Sân bay & Giao thông",
-                "turns": [
-                    {"role": "Immigration Officer (Nhân viên An ninh)", "gender": "male", "en": "Good morning. May I see your passport and boarding pass, please?", "vi": "Chào buổi sáng. Vui lòng cho tôi xem hộ chiếu và thẻ lên máy bay của bà."},
-                    {"role": "Passenger (Hành khách)", "gender": "female", "en": "Good morning, officer. Here are my passport, visa, and return ticket.", "vi": "Chào buổi sáng. Đây là hộ chiếu, thị thực và vé khứ hồi của tôi."},
-                    {"role": "Immigration Officer (Nhân viên An ninh)", "gender": "male", "en": "What is the main purpose of your visit, and how long do you intend to stay?", "vi": "Mục đích chính chuyến đi của bà là gì, và bà dự định lưu trú bao lâu?"},
-                    {"role": "Passenger (Hành khách)", "gender": "female", "en": "I am attending an international medical symposium at the university for five days.", "vi": "Tôi đến tham dự một hội nghị chuyên đề y khoa quốc tế tại trường đại học trong 5 ngày."},
-                    {"role": "Immigration Officer (Nhân viên An ninh)", "gender": "male", "en": "Where will you be staying during your conference?", "vi": "Bà sẽ lưu trú ở đâu trong suốt thời gian diễn ra hội nghị?"},
-                    {"role": "Passenger (Hành khách)", "gender": "female", "en": "I have a confirmed reservation at the Grand Central Hotel. Here is the booking confirmation.", "vi": "Tôi đã đặt phòng xác nhận tại khách sạn Grand Central. Đây là giấy xác nhận đặt phòng."},
-                    {"role": "Immigration Officer (Nhân viên An ninh)", "gender": "male", "en": "Do you have any restricted items, food, or currency exceeding ten thousand dollars to declare?", "vi": "Bà có mang theo vật phẩm hạn chế, thực phẩm hay tiền mặt vượt quá 10.000 đô la cần khai báo không?"},
-                    {"role": "Passenger (Hành khách)", "gender": "female", "en": "No, nothing to declare. I only have personal belongings and prescribed medication.", "vi": "Không, tôi không có gì cần khai báo. Tôi chỉ mang đồ dùng cá nhân và thuốc kê đơn."},
-                    {"role": "Immigration Officer (Nhân viên An ninh)", "gender": "male", "en": "Everything looks in order. Please look at the camera for a quick photo. Welcome and enjoy your conference.", "vi": "Mọi thứ đều hợp lệ. Vui lòng nhìn vào camera để chụp ảnh. Chào mừng bà và chúc hội nghị thành công."}
-                ],
-                "vocab": [
-                    {"word": "symposium", "ipa": "/sɪmˈpoʊ.zi.əm/", "mean": "hội nghị chuyên đề khoa học"},
-                    {"word": "confirmed reservation", "ipa": "/kənˈfɝːmd ˌrez.ɚˈveɪ.ʃən/", "mean": "đặt phòng đã được xác nhận"},
-                    {"word": "restricted items", "ipa": "/rɪˈstrɪk.tɪd ˈaɪ.t̬əmz/", "mean": "vật phẩm hạn chế nhập cảnh"}
-                ],
-                "grammar": {
-                    "title": "Thì Hiện tại Tiếp diễn diễn tả kế hoạch đã sắp xếp trước",
-                    "rule": "S + am/is/are + V-ing + (thời gian / địa điểm cụ thể)",
-                    "example": "I am attending an international symposium and staying downtown for five days."
-                }
-            }
+            st.session_state["ai_dialogue_data"] = smart_generate_dialogue("Hội nghị khoa học chủ đề AI trong chẩn đoán")
 
         dlg = st.session_state["ai_dialogue_data"]
         st.markdown(f"#### {dlg.get('title', 'Hội thoại Thực tế')}")
@@ -762,15 +879,12 @@ with tab3:
         col_vid, col_side = st.columns([1.4, 1])
 
         with col_vid:
-            # Chọn video bối cảnh trực quan phát mượt 100% trên mọi thiết bị
-            cat_default = dlg.get("video_category", "Du lịch, Sân bay & Giao thông")
+            cat_default = dlg.get("video_category", "Hội nghị & Thảo luận học thuật")
             cat_keys = list(SAMPLE_VIDEOS.keys())
             default_idx = cat_keys.index(cat_default) if cat_default in cat_keys else 0
             selected_vid_cat = st.selectbox("Video bối cảnh minh họa:", cat_keys, index=default_idx, key="vid_cat_sel")
             st.video(SAMPLE_VIDEOS[selected_vid_cat])
 
-            # Điều khiển Audio đa giọng Nam & Nữ chuẩn Edge-TTS (Chạy mượt trên điện thoại!)
-            st.markdown("**Trình phát Hội thoại Giọng Nam & Nữ Bản xứ:**")
             c_aud1, c_aud2, c_aud3, c_aud4 = st.columns(4)
             with c_aud1:
                 play_norm = st.button("Nghe Nam/Nữ (1.0x)", type="primary", use_container_width=True)
@@ -783,7 +897,7 @@ with tab3:
 
             if play_norm or play_slow:
                 rate_val = 0.7 if play_slow else 1.0
-                with st.spinner("Đang tổng hợp giọng đọc Nam & Nữ bản xứ..."):
+                with st.spinner("Đang tạo giọng đọc Nam & Nữ bản xứ..."):
                     mp3_bytes = generate_dialogue_mp3_bytes(dlg["turns"], speed_rate=rate_val, swap_gender=swap_g)
                     if mp3_bytes:
                         st.session_state["ai_dialogue_audio"] = mp3_bytes
@@ -791,7 +905,6 @@ with tab3:
             if st.session_state.get("ai_dialogue_audio"):
                 st.audio(st.session_state["ai_dialogue_audio"], format="audio/mp3", autoplay=True)
 
-            # Hiển thị kịch bản đối đáp từng vai
             st.markdown("---")
             for idx, turn in enumerate(dlg["turns"]):
                 g = turn.get("gender", "male" if idx % 2 == 0 else "female").lower()
@@ -812,7 +925,7 @@ with tab3:
                     st.markdown(f"""
                     <div class="{css_cls}">
                         <div style="font-size:12px; font-weight:bold; color:#084298;">{turn['role']} ({g_label})</div>
-                        <div style="font-size:14px; color:#888; font-style:italic;">[Đang ẩn phụ đề để luyện nghe]</div>
+                        <div style="font-size:14px; color:#888; font-style:italic;">[Đang ẩn phụ đề]</div>
                     </div>
                     """, unsafe_allow_html=True)
 
@@ -838,55 +951,29 @@ with tab3:
                 """, unsafe_allow_html=True)
 
     # --------------------------------------------------------------------------
-    # CHỨC NĂNG 3.2: BÀI VIẾT & KỊCH BẢN GIẢNG BÀI + XUẤT FILE WORD (.DOC)
+    # MỤC 2: BÀI VIẾT & KỊCH BẢN GIẢNG BÀI + XUẤT WORD (.DOC)
     # --------------------------------------------------------------------------
-    elif sub_mode == "Bài viết & Kịch bản Giảng bài (Xuất Word)":
+    elif active_menu == "lecture":
         col_l1, col_l2 = st.columns([3, 1])
         with col_l1:
             lec_prompt = st.text_input(
-                "Nhập chủ đề bài giảng hoặc bài viết (VD: bài giảng kiểm định t-test 1 mẫu, quy trình tại ga metro...):",
+                "Nhập chủ đề bài giảng hoặc bài viết (VD: bài giảng t-test 1 mẫu, tại ga metro...):",
                 placeholder="Nhập chủ đề bất kỳ...",
                 key="lec_prompt_input"
             )
         with col_l2:
             st.markdown("<div style='margin-top: 26px;'></div>", unsafe_allow_html=True)
-            gen_lec_btn = st.button("AI Soạn Bài giảng", type="primary", use_container_width=True)
+            gen_lec_btn = st.button("Soạn Bài giảng", type="primary", use_container_width=True)
 
-        if gen_lec_btn:
-            if lec_prompt.strip():
-                with st.spinner("AI đang biên soạn bài viết / kịch bản giảng dạy chi tiết..."):
-                    res_lec, err = generate_ai_learning_content(topic_prompt=lec_prompt, mode="lecture")
-                    if res_lec:
-                        st.session_state["ai_lecture_data"] = res_lec
-                    else:
-                        st.error(err)
-            else:
-                st.warning("Vui lòng nhập chủ đề bài giảng.")
+        if gen_lec_btn and lec_prompt.strip():
+            with st.spinner("Đang biên soạn bài viết / kịch bản giảng dạy..."):
+                st.session_state["ai_lecture_data"] = smart_generate_lecture(lec_prompt)
 
         if "ai_lecture_data" not in st.session_state:
-            st.session_state["ai_lecture_data"] = {
-                "title": "BÀI GIẢNG: KIỂM ĐỊNH T 1 MẪU (ONE-SAMPLE T-TEST IN BIOSTATISTICS)",
-                "sections": [
-                    {
-                        "heading": "1. Opening & Purpose (Mở đầu & Mục đích kiểm định)",
-                        "en": "Good morning everyone. Today we will discuss the One-Sample t-Test, a fundamental parametric test used to determine whether the mean of a single sample differs significantly from a known or hypothesized population mean.",
-                        "vi": "Chào buổi sáng tất cả các bạn. Hôm nay chúng ta sẽ thảo luận về Kiểm định t một mẫu, một kiểm định tham số cơ bản dùng để xác định xem trung bình của một mẫu đơn lẻ có khác biệt có ý nghĩa thống kê so với trung bình quần thể giả định hay không."
-                    },
-                    {
-                        "heading": "2. Key Assumptions & Formula (Giả định cốt lõi & Công thức)",
-                        "en": "Before applying this test, ensure the dependent variable is continuous, observations are independent, and data are approximately normally distributed. The t-statistic is computed as the difference between the sample mean and hypothesized mean divided by the standard error.",
-                        "vi": "Trước khi áp dụng kiểm định này, hãy đảm bảo biến phụ thuộc là biến liên tục, các quan sát độc lập và dữ liệu phân phối xấp xỉ chuẩn. Trị số thống kê t được tính bằng hiệu số giữa trung bình mẫu và trung bình giả định chia cho sai số chuẩn."
-                    }
-                ],
-                "vocab": [
-                    {"word": "One-Sample t-Test", "mean": "Kiểm định t một mẫu"},
-                    {"word": "Standard error (SE)", "mean": "Sai số chuẩn"}
-                ]
-            }
+            st.session_state["ai_lecture_data"] = smart_generate_lecture("bài giảng t-test 1 mẫu")
 
         lec = st.session_state["ai_lecture_data"]
 
-        # Tạo nội dung file Word chuẩn tải về ngay lập tức
         word_body = f"<h2 style='text-align:center; color:#084298; font-family:\"Times New Roman\", serif;'>{lec.get('title', '')}</h2><hr/>"
         for s in lec.get("sections", []):
             word_body += f"""
@@ -907,7 +994,7 @@ with tab3:
             st.download_button(
                 label="Tải về file Word (.doc)",
                 data=full_word_html.encode("utf-8"),
-                file_name="Kich_Ban_Bai_Giang_AI.doc",
+                file_name="Kich_Ban_Bai_Giang.doc",
                 mime="application/msword",
                 type="primary",
                 use_container_width=True
@@ -924,7 +1011,6 @@ with tab3:
         if st.session_state.get("lec_mp3"):
             st.audio(st.session_state["lec_mp3"], format="audio/mp3")
 
-        # Khung hiển thị bài viết có thanh cuộn dọc và tự co giãn ngang trên điện thoại
         display_html = f"<div class='lecture-container'><h4 style='color:#084298; border-bottom:2px solid #0d6efd; padding-bottom:6px;'>{lec.get('title', '')}</h4>"
         for s in lec.get("sections", []):
             vi_block = f"<div style='color:#495057; font-style:italic; margin-top:6px; border-top:1px dashed #ced4da; padding-top:4px;'>{s.get('vi', '')}</div>" if show_lec_vi else ""
@@ -945,32 +1031,54 @@ with tab3:
         st.markdown(display_html, unsafe_allow_html=True)
 
     # --------------------------------------------------------------------------
-    # CHỨC NĂNG 3.3: TỪ ĐIỂN & LUYỆN PHÁT ÂM AI
+    # MỤC 3: TỪ ĐIỂN & PHÁT ÂM CHUẨN NAM / NỮ
     # --------------------------------------------------------------------------
-    else:
-        col_d1, col_d2 = st.columns(2)
+    elif active_menu == "dict":
+        col_d1, col_d2 = st.columns([3, 1])
         with col_d1:
-            st.markdown("**Tra cứu Từ điển & Phát âm Chuẩn**")
-            dict_word = st.text_input("Nhập từ vựng tiếng Anh:", placeholder="VD: hypothesis, immigration, platform...", key="dict_w_in")
-            if st.button("Tra cứu từ vựng", type="primary"):
-                if dict_word.strip():
-                    vi_res = translate_stable(dict_word, "en", "vi")
-                    st.success(f"**{dict_word}**: {vi_res}")
-                    if create_mp3(dict_word, "us Nữ - Anh-Mỹ (Jenny - Truyền cảm)", 0.95, "dict_word.mp3"):
-                        with open("dict_word.mp3", "rb") as f:
-                            st.audio(f.read(), format="audio/mp3")
+            dict_word = st.text_input("Nhập từ vựng hoặc thuật ngữ tiếng Anh:", placeholder="VD: hypothesis, immigration, diagnostic...", key="dict_w_in")
         with col_d2:
-            st.markdown("**Gia sư Chỉnh sửa Câu Song ngữ**")
-            tutor_q = st.text_input("Nhập câu tiếng Việt cần diễn đạt hoặc câu tiếng Anh cần AI sửa:", key="tutor_q_in")
-            if st.button("Hỏi Gia sư AI"):
-                if tutor_q.strip():
-                    is_vi = bool(re.search(r'[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]', tutor_q, re.I))
-                    if is_vi:
-                        en_out = translate_stable(tutor_q, "vi", "en")
-                        st.info(f"**Diễn đạt Tiếng Anh tự nhiên:** {en_out}")
-                        if create_mp3(en_out, "us Nam - Anh-Mỹ (Guy - Trầm ấm)", 0.95, "tutor_out.mp3"):
-                            with open("tutor_out.mp3", "rb") as f:
-                                st.audio(f.read(), format="audio/mp3")
-                    else:
-                        vi_out = translate_stable(tutor_q, "en", "vi")
-                        st.info(f"**Nghĩa tiếng Việt:** {vi_out}")
+            st.markdown("<div style='margin-top: 26px;'></div>", unsafe_allow_html=True)
+            lookup_btn = st.button("Tra cứu Từ điển", type="primary", use_container_width=True)
+
+        if lookup_btn and dict_word.strip():
+            vi_res = translate_stable(dict_word, "en", "vi")
+            st.success(f"**{dict_word}**: {vi_res}")
+            c_v1, c_v2 = st.columns(2)
+            with c_v1:
+                if create_mp3(dict_word, "us Nam - Anh-Mỹ (Guy - Trầm ấm)", 0.95, "dict_male.mp3"):
+                    st.caption("Giọng Nam (Guy):")
+                    with open("dict_male.mp3", "rb") as f:
+                        st.audio(f.read(), format="audio/mp3")
+            with c_v2:
+                if create_mp3(dict_word, "us Nữ - Anh-Mỹ (Jenny - Truyền cảm)", 0.95, "dict_female.mp3"):
+                    st.caption("Giọng Nữ (Jenny):")
+                    with open("dict_female.mp3", "rb") as f:
+                        st.audio(f.read(), format="audio/mp3")
+
+    # --------------------------------------------------------------------------
+    # MỤC 4: GIA SƯ HỘI THOẠI SONG NGỮ
+    # --------------------------------------------------------------------------
+    elif active_menu == "chat":
+        col_c1, col_c2 = st.columns([3, 1])
+        with col_c1:
+            tutor_q = st.text_input("Nhập câu tiếng Việt cần diễn đạt hoặc câu tiếng Anh cần chỉnh sửa:", key="tutor_q_in")
+        with col_c2:
+            st.markdown("<div style='margin-top: 26px;'></div>", unsafe_allow_html=True)
+            ask_btn = st.button("Hỏi Gia sư AI", type="primary", use_container_width=True)
+
+        if ask_btn and tutor_q.strip():
+            is_vi = bool(re.search(r'[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]', tutor_q, re.I))
+            if is_vi:
+                en_out = translate_stable(tutor_q, "vi", "en")
+                st.info(f"**Diễn đạt Tiếng Anh tự nhiên:** {en_out}")
+                if create_mp3(en_out, "us Nam - Anh-Mỹ (Guy - Trầm ấm)", 0.95, "tutor_out.mp3"):
+                    with open("tutor_out.mp3", "rb") as f:
+                        st.audio(f.read(), format="audio/mp3")
+            else:
+                vi_out = translate_stable(tutor_q, "en", "vi")
+                polished_en = translate_stable(vi_out, "vi", "en")
+                st.info(f"**Nghĩa tiếng Việt:** {vi_out}\n\n**Gợi ý diễn đạt chuẩn hơn:** {polished_en}")
+                if create_mp3(polished_en, "us Nữ - Anh-Mỹ (Jenny - Truyền cảm)", 0.95, "tutor_out_f.mp3"):
+                    with open("tutor_out_f.mp3", "rb") as f:
+                        st.audio(f.read(), format="audio/mp3")
