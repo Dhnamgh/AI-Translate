@@ -13,7 +13,6 @@ st.set_page_config(page_title="AI Translate Cabin Pro", layout="wide")
 
 st.markdown("""
 <style>
-    /* Font chữ chuẩn Times New Roman 13px */
     h1, h2, h3, h4, h5, h6, 
     .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4, .stMarkdown h5, .stMarkdown h6 {
         font-family: 'Times New Roman', Times, serif !important;
@@ -31,21 +30,25 @@ st.markdown("""
         font-size: 13px !important;
     }
 
-    /* Thiết kế thanh Tab Menu màu xanh chuyên nghiệp, xổ nội dung mượt */
+    /* Thanh Tab Menu màu xanh đồng bộ, hỗ trợ cuộn ngang trên điện thoại */
     .stTabs [data-baseweb="tab-list"] {
         background-color: #0d6efd;
-        padding: 6px 10px 0px 10px;
+        padding: 6px 8px 0px 8px;
         border-radius: 8px 8px 0px 0px;
         gap: 6px;
         border-bottom: 2px solid #0a58ca;
+        overflow-x: auto;
+        white-space: nowrap;
+        flex-wrap: nowrap;
     }
 
     .stTabs button[data-baseweb="tab"] {
         background-color: rgba(255, 255, 255, 0.15);
         color: #ffffff !important;
         border-radius: 6px 6px 0px 0px;
-        padding: 10px 20px;
+        padding: 10px 16px;
         border: none !important;
+        flex-shrink: 0;
         transition: all 0.25s ease;
     }
 
@@ -74,14 +77,8 @@ st.markdown("""
         border: 1px solid #dee2e6;
         border-top: none;
         border-radius: 0px 0px 8px 8px;
-        padding: 20px;
+        padding: 15px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-        animation: slideDown 0.25s ease-out;
-    }
-
-    @keyframes slideDown {
-        from { opacity: 0; transform: translateY(-6px); }
-        to { opacity: 1; transform: translateY(0); }
     }
 
     .translated-box {
@@ -275,10 +272,10 @@ with tab2:
             .btn-stop { background-color: #dc3545; }
             #status-badge { font-family: 'Times New Roman', Times, serif !important; margin-top: 10px; font-weight: bold; font-size: 13px !important; color: #0d6efd; }
             .cabin-grid { display: flex; flex-direction: row; gap: 15px; margin-top: 15px; }
-            .cabin-panel { flex: 1; background: #ffffff; border: 1px solid #ced4da; border-radius: 8px; padding: 15px; text-align: left; height: 500px; overflow-y: auto; box-shadow: inset 0 0 5px rgba(0,0,0,0.05); }
+            .cabin-panel { flex: 1; background: #ffffff; border: 1px solid #ced4da; border-radius: 8px; padding: 15px; text-align: left; height: 480px; overflow-y: auto; box-shadow: inset 0 0 5px rgba(0,0,0,0.05); }
             .panel-title { font-family: 'Times New Roman', Times, serif !important; font-weight: bold; font-size: 14px !important; margin-bottom: 10px; border-bottom: 1px solid #e9ecef; padding-bottom: 5px; }
             .panel-content { font-size: 16px; line-height: 1.6; word-wrap: break-word; }
-            @media (max-width: 768px) { .cabin-grid { flex-direction: column; } .cabin-panel { height: 350px; } }
+            @media (max-width: 768px) { .cabin-grid { flex-direction: column; } .cabin-panel { height: 280px; } }
         </style>
     </head>
     <body>
@@ -470,10 +467,10 @@ with tab2:
         .replace("__TGT_CODE__", tgt_code_val)
         .replace("__LANG_JS__", lang_code_js)
     )
-    components.html(cabin_html_code, height=750)
+    components.html(cabin_html_code, height=720, scrolling=True)
 
 # ==============================================================================
-# TAB 3: HỌC TIẾNG ANH CÙNG AI (NHIỀU CHỦ ĐỀ + TỰ NHẬP CHỦ ĐỀ BẤT KỲ)
+# TAB 3: HỌC TIẾNG ANH CÙNG AI (HỘI THOẠI NHẬP VAI THỰC TẾ + RESPONSIVE MOBILE)
 # ==============================================================================
 with tab3:
     st.subheader("Hệ thống Học Tiếng Anh Tương tác cùng AI")
@@ -483,38 +480,43 @@ with tab3:
     <html>
     <head>
         <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         <style>
+            * { box-sizing: border-box; }
             body {
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
                 background-color: #f4f6f9;
                 margin: 0;
-                padding: 12px;
+                padding: 8px;
                 color: #212529;
             }
+            /* Menu xanh responsive trên cả máy tính và điện thoại */
             .blue-menu-bar {
-                display: flex;
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
                 background-color: #0d6efd;
                 border-radius: 8px;
                 padding: 5px;
-                gap: 6px;
-                margin-bottom: 15px;
+                gap: 5px;
+                margin-bottom: 12px;
                 box-shadow: 0 3px 8px rgba(13, 110, 253, 0.25);
-                flex-wrap: wrap;
+            }
+            @media (max-width: 768px) {
+                .blue-menu-bar {
+                    grid-template-columns: repeat(2, 1fr);
+                }
             }
             .menu-item {
-                flex: 1;
-                min-width: 160px;
-                padding: 12px 15px;
+                padding: 10px 10px;
                 border: none;
                 border-radius: 6px;
                 background-color: transparent;
                 color: #ffffff;
                 font-weight: bold;
                 cursor: pointer;
-                font-size: 14px;
+                font-size: 13px;
                 text-align: center;
-                transition: all 0.25s ease;
+                transition: all 0.2s ease;
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
@@ -525,7 +527,7 @@ with tab3:
                 color: #0d6efd;
                 box-shadow: 0 2px 6px rgba(0,0,0,0.12);
             }
-            .arrow-icon { font-size: 11px; transition: transform 0.25s ease; }
+            .arrow-icon { font-size: 10px; transition: transform 0.2s ease; margin-left: 4px; }
             .menu-item.active .arrow-icon { transform: rotate(180deg); }
 
             .dropdown-panel {
@@ -533,36 +535,31 @@ with tab3:
                 border: 1px solid #cfe2ff;
                 border-top: 4px solid #0d6efd;
                 border-radius: 8px;
-                padding: 20px;
+                padding: 15px;
                 box-shadow: 0 4px 12px rgba(0,0,0,0.05);
                 display: none;
-                animation: expandPanel 0.3s ease-out;
             }
             .dropdown-panel.active { display: block; }
-            @keyframes expandPanel {
-                from { opacity: 0; transform: translateY(-10px); }
-                to { opacity: 1; transform: translateY(0); }
-            }
 
             .topic-control-box {
                 background: #f8f9fa;
                 border: 1px solid #dee2e6;
                 border-radius: 8px;
-                padding: 14px;
-                margin-bottom: 16px;
+                padding: 12px;
+                margin-bottom: 15px;
             }
-            .input-group { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+            .input-group { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
             .input-group:last-child { margin-bottom: 0; }
             input[type="text"], select {
                 flex: 1;
-                min-width: 220px;
-                padding: 10px 14px;
+                min-width: 180px;
+                padding: 10px 12px;
                 border: 1px solid #ced4da;
                 border-radius: 6px;
                 font-size: 14px;
             }
             .btn-blue {
-                padding: 10px 18px;
+                padding: 10px 16px;
                 border: none;
                 border-radius: 6px;
                 background-color: #0d6efd;
@@ -570,11 +567,10 @@ with tab3:
                 font-weight: bold;
                 cursor: pointer;
                 font-size: 13px;
-                transition: 0.2s;
             }
             .btn-blue:hover { background-color: #0b5ed7; }
             .btn-outline-blue {
-                padding: 8px 14px;
+                padding: 8px 12px;
                 border: 1px solid #0d6efd;
                 border-radius: 6px;
                 background-color: #ffffff;
@@ -583,9 +579,8 @@ with tab3:
                 cursor: pointer;
                 font-size: 13px;
             }
-            .btn-outline-blue:hover { background-color: #e7f1ff; }
             .btn-dark-blue {
-                padding: 8px 14px;
+                padding: 8px 12px;
                 border: none;
                 border-radius: 6px;
                 background-color: #084298;
@@ -595,53 +590,84 @@ with tab3:
                 font-size: 13px;
             }
 
-            .video-layout { display: flex; gap: 20px; flex-wrap: wrap; }
-            .video-main { flex: 1.3; min-width: 300px; }
+            /* Bố cục Video Hội thoại + Từ vựng + Ngữ pháp */
+            .video-layout { display: flex; gap: 15px; flex-direction: row; }
+            @media (max-width: 768px) {
+                .video-layout { flex-direction: column; }
+            }
+            .video-main { flex: 1.35; }
             .video-sidebar {
                 flex: 1;
-                min-width: 280px;
                 background: #f8f9fa;
                 border: 1px solid #dee2e6;
                 border-radius: 8px;
-                padding: 15px;
-                max-height: 580px;
-                overflow-y: auto;
+                padding: 14px;
             }
+
             .media-screen {
                 background: linear-gradient(135deg, #0a2540 0%, #0d6efd 100%);
                 color: white;
                 border-radius: 10px;
-                padding: 25px 20px;
-                text-align: center;
-                position: relative;
+                padding: 18px 14px;
                 box-shadow: 0 4px 10px rgba(0,0,0,0.15);
             }
-            .wave-bars { display: flex; justify-content: center; align-items: center; gap: 5px; height: 36px; margin-bottom: 12px; }
-            .bar { width: 5px; height: 12px; background: #6ea8fe; border-radius: 3px; transition: height 0.2s; }
-            .playing .bar { animation: soundWave 0.6s infinite alternate; }
+            .wave-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                border-bottom: 1px solid rgba(255,255,255,0.2);
+                padding-bottom: 10px;
+                margin-bottom: 12px;
+                flex-wrap: wrap;
+                gap: 6px;
+            }
+            .wave-bars { display: flex; align-items: center; gap: 4px; height: 22px; }
+            .bar { width: 4px; height: 8px; background: #6ea8fe; border-radius: 2px; }
+            .playing .bar { animation: soundWave 0.5s infinite alternate; }
             .playing .bar:nth-child(2) { animation-delay: 0.1s; }
             .playing .bar:nth-child(3) { animation-delay: 0.2s; }
             .playing .bar:nth-child(4) { animation-delay: 0.3s; }
-            .playing .bar:nth-child(5) { animation-delay: 0.4s; }
             @keyframes soundWave {
-                from { height: 8px; background: #6ea8fe; }
-                to { height: 34px; background: #ffffff; }
+                from { height: 6px; background: #6ea8fe; }
+                to { height: 22px; background: #ffffff; }
             }
 
-            .subtitle-box {
-                background: rgba(0, 0, 0, 0.45);
+            /* Khung hội thoại 2 vai trực quan */
+            .dialogue-container {
+                background: rgba(0, 0, 0, 0.35);
                 border-radius: 8px;
-                padding: 15px;
-                margin-top: 15px;
-                min-height: 95px;
+                padding: 12px;
                 display: flex;
                 flex-direction: column;
-                justify-content: center;
+                gap: 10px;
             }
-            .sub-en { font-size: 16px; font-weight: bold; color: #ffffff; line-height: 1.5; }
-            .sub-vi { font-size: 14px; color: #cfe2ff; margin-top: 6px; font-style: italic; }
-            .sub-hidden { filter: blur(6px); user-select: none; opacity: 0.4; }
-            .controls-row { display: flex; gap: 8px; justify-content: center; margin-top: 15px; flex-wrap: wrap; }
+            .turn-box {
+                background: rgba(255, 255, 255, 0.12);
+                border-left: 3px solid #6ea8fe;
+                padding: 10px 12px;
+                border-radius: 6px;
+                text-align: left;
+            }
+            .turn-box.role-b {
+                background: rgba(255, 255, 255, 0.2);
+                border-left: 3px solid #ffc107;
+            }
+            .role-label {
+                font-size: 11px;
+                font-weight: bold;
+                text-transform: uppercase;
+                color: #9ec5fe;
+                margin-bottom: 3px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            .role-b .role-label { color: #ffe69c; }
+            .sub-en { font-size: 15px; font-weight: bold; color: #ffffff; line-height: 1.45; }
+            .sub-vi { font-size: 13px; color: #cfe2ff; margin-top: 4px; font-style: italic; }
+            .sub-hidden { filter: blur(5px); user-select: none; opacity: 0.35; }
+
+            .controls-row { display: flex; gap: 6px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
 
             .vocab-card {
                 background: #ffffff;
@@ -656,29 +682,30 @@ with tab3:
                 border: 1px solid #b6d4fe;
                 border-radius: 6px;
                 padding: 12px;
-                margin-top: 12px;
+                margin-top: 10px;
             }
 
-            .word-header { font-size: 22px; font-weight: bold; color: #0d6efd; margin-bottom: 4px; }
-            .phonetic { color: #6c757d; font-size: 15px; font-family: monospace; margin-bottom: 10px; }
+            .word-header { font-size: 20px; font-weight: bold; color: #0d6efd; margin-bottom: 4px; }
+            .phonetic { color: #6c757d; font-size: 14px; font-family: monospace; margin-bottom: 10px; }
             .meaning-box { background: #f1f8ff; border-left: 4px solid #0d6efd; padding: 12px; border-radius: 6px; margin-bottom: 12px; }
-            .sample-sentence-box { background: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; border-radius: 8px; font-size: 17px; font-weight: 500; margin-bottom: 15px; line-height: 1.5; }
-            .score-circle { display: inline-block; padding: 8px 16px; border-radius: 20px; font-weight: bold; font-size: 15px; margin-top: 10px; }
+            .sample-sentence-box { background: #f8f9fa; border: 1px solid #dee2e6; padding: 14px; border-radius: 8px; font-size: 16px; font-weight: 500; margin-bottom: 14px; line-height: 1.5; }
+            .score-circle { display: inline-block; padding: 8px 16px; border-radius: 20px; font-weight: bold; font-size: 14px; margin-top: 10px; }
             .word-correct { color: #198754; font-weight: bold; }
             .word-wrong { color: #dc3545; text-decoration: line-through; }
-            .chat-window { height: 300px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 8px; padding: 15px; background: #fdfdfd; margin-bottom: 12px; }
-            .msg-user { background: #0d6efd; color: white; padding: 10px 14px; border-radius: 14px 14px 2px 14px; max-width: 80%; margin-left: auto; margin-bottom: 10px; font-size: 14px; }
-            .msg-ai { background: #e9ecef; color: #212529; padding: 10px 14px; border-radius: 14px 14px 14px 2px; max-width: 85%; margin-right: auto; margin-bottom: 10px; font-size: 14px; line-height: 1.5; }
+            .chat-window { height: 280px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; background: #fdfdfd; margin-bottom: 10px; }
+            .msg-user { background: #0d6efd; color: white; padding: 9px 12px; border-radius: 12px 12px 2px 12px; max-width: 85%; margin-left: auto; margin-bottom: 8px; font-size: 14px; }
+            .msg-ai { background: #e9ecef; color: #212529; padding: 9px 12px; border-radius: 12px 12px 12px 2px; max-width: 90%; margin-right: auto; margin-bottom: 8px; font-size: 14px; line-height: 1.45; }
         </style>
     </head>
     <body>
+        <!-- THANH MENU MÀU XANH CO GIÃN ĐẦY ĐỦ TRÊN ĐIỆN THOẠI & MÁY TÍNH -->
         <div class="blue-menu-bar">
             <button class="menu-item active" onclick="openPanel('video', this)">
-                <span>Xem Video & Luyện Nghe</span>
+                <span>Video & Hội thoại</span>
                 <span class="arrow-icon">▼</span>
             </button>
             <button class="menu-item" onclick="openPanel('dict', this)">
-                <span>Từ điển AI & Phát âm</span>
+                <span>Từ điển & Phát âm</span>
                 <span class="arrow-icon">▼</span>
             </button>
             <button class="menu-item" onclick="openPanel('speak', this)">
@@ -686,53 +713,50 @@ with tab3:
                 <span class="arrow-icon">▼</span>
             </button>
             <button class="menu-item" onclick="openPanel('chat', this)">
-                <span>Gia sư Hội thoại Song ngữ</span>
+                <span>Gia sư Song ngữ</span>
                 <span class="arrow-icon">▼</span>
             </button>
         </div>
 
-        <!-- PANEL 1: XEM VIDEO / NGHE HỘI THOẠI + CHỌN HOẶC TỰ NHẬP CHỦ ĐỀ -->
+        <!-- PANEL 1: XEM VIDEO / NGHE HỘI THOẠI NHẬP VAI THỰC TẾ -->
         <div id="panel-video" class="dropdown-panel active">
             <div class="topic-control-box">
                 <div class="input-group">
                     <select id="video-topic-select" onchange="changeVideoLesson()">
-                        <option value="biostat">Chủ đề 1: Thống kê Y sinh & Nghiên cứu Lâm sàng</option>
-                        <option value="pharma">Chủ đề 2: Dược lâm sàng & Thử nghiệm Thuốc mới</option>
-                        <option value="conference">Chủ đề 3: Báo cáo tại Hội nghị Khoa học Quốc tế</option>
-                        <option value="admin">Chủ đề 4: Điều hành & Quản trị Chuyển đổi số</option>
-                        <option value="ai_tech">Chủ đề 5: Trí tuệ Nhân tạo (AI) trong Y tế & Giáo dục</option>
-                        <option value="negotiation">Chủ đề 6: Đàm phán & Ký kết Hợp tác Quốc tế</option>
-                        <option value="travel">Chủ đề 7: Giao tiếp Sân bay, Khách sạn & Công tác Nước ngoài</option>
-                        <option value="daily">Chủ đề 8: Giao tiếp Công sở & Thảo luận Nhóm</option>
+                        <option value="immigration">Chủ đề 1: Thủ tục Nhập cảnh & Hải quan Sân bay</option>
+                        <option value="biostat">Chủ đề 2: Thống kê Y sinh & Nghiên cứu Lâm sàng</option>
+                        <option value="pharma">Chủ đề 3: Dược lâm sàng & Tư vấn Thuốc</option>
+                        <option value="conference">Chủ đề 4: Báo cáo tại Hội nghị Khoa học Quốc tế</option>
+                        <option value="hotel">Chủ đề 5: Nhận phòng Khách sạn & Lưu trú Công tác</option>
+                        <option value="admin">Chủ đề 6: Điều hành & Quản trị Chuyển đổi số</option>
                     </select>
-                    <button class="btn-outline-blue" onclick="nextClipInTopic()">Đổi đoạn hội thoại khác</button>
+                    <button class="btn-outline-blue" onclick="nextClipInTopic()">Đổi tình huống khác</button>
                 </div>
 
                 <div class="input-group">
-                    <input type="text" id="custom-topic-input" placeholder="Hoặc tự nhập chủ đề bạn quan tâm (VD: Chronic urticaria, Phỏng vấn xin học bổng, Thuyết trình luận án...)" onkeypress="if(event.key==='Enter') generateCustomTopic()">
-                    <button class="btn-blue" id="btn-gen-topic" onclick="generateCustomTopic()">Tạo bài học AI theo chủ đề</button>
+                    <input type="text" id="custom-topic-input" placeholder="Tự nhập tình huống bất kỳ (VD: khai báo hải quan, khám bệnh, phỏng vấn...)" onkeypress="if(event.key==='Enter') generateCustomDialogue()">
+                    <button class="btn-blue" id="btn-gen-topic" onclick="generateCustomDialogue()">Tạo hội thoại thực tế</button>
                 </div>
             </div>
 
             <div class="video-layout">
                 <div class="video-main">
                     <div class="media-screen" id="media-player-box">
-                        <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #9ec5fe; margin-bottom: 8px;" id="clip-badge">
-                            BÀI NGHE THỰC TẾ 01
+                        <div class="wave-header">
+                            <span style="font-size: 12px; font-weight: bold; color: #9ec5fe;" id="clip-badge">TÌNH HUỐNG HỘI THOẠI 01</span>
+                            <div class="wave-bars" id="wave-indicator">
+                                <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+                            </div>
+                            <span style="font-size: 12px; color: #e2e3e5;" id="player-status">Sẵn sàng phát</span>
                         </div>
-                        <div class="wave-bars" id="wave-indicator">
-                            <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
-                        </div>
-                        <div style="font-size: 13px; color: #e2e3e5;" id="player-status">Sẵn sàng phát nội dung bài nghe</div>
 
-                        <div class="subtitle-box" id="subtitle-container">
-                            <div class="sub-en" id="clip-en"></div>
-                            <div class="sub-vi" id="clip-vi"></div>
+                        <div class="dialogue-container" id="subtitle-container">
+                            <!-- Các lượt đối thoại A - B sẽ render tại đây -->
                         </div>
 
                         <div class="controls-row">
-                            <button class="btn-blue" style="background-color: #198754;" onclick="playCurrentClip(1.0)">Nghe bình thường (1.0x)</button>
-                            <button class="btn-dark-blue" onclick="playCurrentClip(0.65)">Nghe chậm (0.65x)</button>
+                            <button class="btn-blue" style="background-color: #198754;" onclick="playFullDialogue(1.0)">Nghe hội thoại (1.0x)</button>
+                            <button class="btn-dark-blue" onclick="playFullDialogue(0.65)">Nghe chậm (0.65x)</button>
                             <button class="btn-blue" style="background-color: #dc3545;" onclick="stopClip()">Dừng phát</button>
                             <button class="btn-outline-blue" id="btn-toggle-sub" onclick="toggleSubtitle()">Ẩn phụ đề</button>
                         </div>
@@ -741,12 +765,12 @@ with tab3:
 
                 <div class="video-sidebar">
                     <div style="font-weight: bold; color: #0d6efd; font-size: 15px; margin-bottom: 10px; border-bottom: 1px solid #dee2e6; padding-bottom: 6px;">
-                        Từ vựng trọng tâm trong bài
+                        Từ vựng trọng tâm trong tình huống
                     </div>
                     <div id="related-vocab-list"></div>
 
                     <div style="font-weight: bold; color: #084298; font-size: 15px; margin-top: 16px; margin-bottom: 8px; border-bottom: 1px solid #dee2e6; padding-bottom: 6px;">
-                        Chủ điểm Ngữ pháp liên quan
+                        Cấu trúc Ngữ pháp & Mẫu câu giao tiếp
                     </div>
                     <div id="related-grammar-box"></div>
                 </div>
@@ -756,7 +780,7 @@ with tab3:
         <!-- PANEL 2: TỪ ĐIỂN AI & PHÁT ÂM -->
         <div id="panel-dict" class="dropdown-panel">
             <div class="input-group">
-                <input type="text" id="dict-input" placeholder="Nhập từ vựng hoặc thuật ngữ tiếng Anh (VD: epidemiology, hypothesis)..." onkeypress="if(event.key==='Enter') lookupWord()">
+                <input type="text" id="dict-input" placeholder="Nhập từ vựng tiếng Anh (VD: immigration, customs, declaration)..." onkeypress="if(event.key==='Enter') lookupWord()">
                 <button class="btn-blue" onclick="lookupWord()">Tra cứu</button>
             </div>
             <div id="dict-result">
@@ -768,21 +792,21 @@ with tab3:
         <div id="panel-speak" class="dropdown-panel">
             <div class="input-group">
                 <select id="topic-select" onchange="loadNextSentence()">
+                    <option value="immigration">Chủ đề: Nhập cảnh & Hải quan Sân bay</option>
                     <option value="medical">Chủ đề: Y khoa & Nghiên cứu Khoa học</option>
                     <option value="academic">Chủ đề: Hội thảo & Thuyết trình Quốc tế</option>
-                    <option value="daily">Chủ đề: Giao tiếp Công việc & Đời sống</option>
                 </select>
                 <button class="btn-outline-blue" onclick="loadNextSentence()">Đổi câu mẫu khác</button>
             </div>
             <div class="sample-sentence-box">
                 <div style="font-size: 12px; color: #0d6efd; font-weight: bold; margin-bottom: 4px;">CÂU MẪU LUYỆN ĐỌC:</div>
-                <span id="target-sentence">Statistical thinking is essential for evidence-based medical research.</span>
+                <span id="target-sentence">Here is my passport and return ticket. I am here for an international medical conference.</span>
                 <div style="margin-top: 10px;">
                     <button class="btn-blue" onclick="speakText(document.getElementById('target-sentence').innerText, 0.95)">Nghe mẫu chuẩn</button>
                     <button class="btn-outline-blue" onclick="speakText(document.getElementById('target-sentence').innerText, 0.65)">Nghe chậm</button>
                 </div>
                 <div id="target-vi" style="font-size: 14px; color: #555; margin-top: 8px; font-weight: normal; font-style: italic;">
-                    (Tư duy thống kê là yếu tố thiết yếu cho nghiên cứu y học dựa trên bằng chứng.)
+                    (Đây là hộ chiếu và vé khứ hồi của tôi. Tôi đến đây để tham dự một hội nghị y khoa quốc tế.)
                 </div>
             </div>
             <button id="btn-record-eval" class="btn-blue" style="width: 100%; padding: 13px; font-size: 14px;" onclick="startPronunciationCheck()">
@@ -795,11 +819,11 @@ with tab3:
         <div id="panel-chat" class="dropdown-panel">
             <div class="chat-window" id="chat-box">
                 <div class="msg-ai">
-                    <b>AI English Tutor:</b> Xin chào! Hãy nhập một câu tiếng Việt bạn muốn diễn đạt sang tiếng Anh tự nhiên, hoặc viết một câu tiếng Anh để tôi kiểm tra ngữ pháp và gợi ý cách diễn đạt học thuật hơn.
+                    <b>AI English Tutor:</b> Xin chào! Hãy nhập câu tiếng Việt bạn muốn nói với hải quan, đồng nghiệp quốc tế... hoặc nhập câu tiếng Anh để tôi kiểm tra và chỉnh sửa tự nhiên hơn.
                 </div>
             </div>
             <div class="input-group">
-                <input type="text" id="chat-input" placeholder="Nhập câu tiếng Việt cần diễn đạt hoặc câu tiếng Anh cần sửa..." onkeypress="if(event.key==='Enter') sendTutorMessage()">
+                <input type="text" id="chat-input" placeholder="Nhập câu tiếng Việt hoặc tiếng Anh..." onkeypress="if(event.key==='Enter') sendTutorMessage()">
                 <button class="btn-blue" onclick="sendTutorMessage()">Gửi AI</button>
             </div>
         </div>
@@ -813,164 +837,174 @@ with tab3:
                 stopClip();
             }
 
-            const LESSON_DATA = {
-                biostat: [
+            // KHO DỮ LIỆU HỘI THOẠI ĐỐI ĐÁP 2 VAI (ROLEPLAY) THỰC TẾ
+            const DIALOGUE_BANK = {
+                immigration: [
                     {
-                        en: "In biomedical research, selecting an appropriate statistical test is crucial to avoid false-positive conclusions and ensure the validity of clinical findings.",
-                        vi: "Trong nghiên cứu y sinh, việc lựa chọn kiểm định thống kê phù hợp là rất quan trọng để tránh các kết luận dương tính giả và đảm bảo tính giá trị của các phát hiện lâm sàng.",
+                        title: "Tình huống 1: Kiểm tra Hộ chiếu & Mục đích nhập cảnh",
+                        turns: [
+                            { role: "Immigration Officer (An ninh cửa khẩu)", en: "Good morning. May I see your passport and boarding pass, please? What is the purpose of your visit?", vi: "Chào buổi sáng. Vui lòng cho tôi xem hộ chiếu và thẻ lên máy bay. Mục đích chuyến đi của ông/bà là gì?" },
+                            { role: "Passenger (Người nhập cảnh)", en: "Here you are. I am attending an international medical conference at the university for five days.", vi: "Đây ạ. Tôi đến tham dự một hội nghị y khoa quốc tế tại trường đại học trong 5 ngày." },
+                            { role: "Immigration Officer (An ninh cửa khẩu)", en: "Where will you be staying, and do you have a return flight ticket?", vi: "Ông/bà sẽ lưu trú ở đâu và có vé máy bay khứ hồi chưa?" },
+                            { role: "Passenger (Người nhập cảnh)", en: "I am staying at the Grand Hotel downtown. Here is my hotel reservation and return ticket.", vi: "Tôi ở tại khách sạn Grand ở trung tâm thành phố. Đây là xác nhận đặt phòng và vé khứ hồi của tôi." }
+                        ],
                         vocab: [
-                            { word: "biomedical", ipa: "/ˌbaɪ.oʊˈmed.ɪ.kəl/", mean: "thuộc về y sinh học" },
-                            { word: "crucial", ipa: "/ˈkruː.ʃəl/", mean: "quan trọng, cốt yếu" },
-                            { word: "false-positive", ipa: "/ˌfɔːls ˈpɑː.zə.tɪv/", mean: "dương tính giả" },
-                            { word: "validity", ipa: "/vəˈlɪd.ə.t̬i/", mean: "tính giá trị, độ xác thực" }
+                            { word: "immigration", ipa: "/ˌɪm.əˈɡreɪ.ʃən/", mean: "nhập cảnh, di trú" },
+                            { word: "purpose of visit", ipa: "/ˈpɝː.pəs əv ˈvɪz.ɪt/", mean: "mục đích chuyến đi" },
+                            { word: "boarding pass", ipa: "/ˈbɔːr.dɪŋ pæs/", mean: "thẻ lên máy bay" },
+                            { word: "reservation", ipa: "/ˌrez.ɚˈveɪ.ʃən/", mean: "sự đặt chỗ trước (khách sạn/vé)" }
                         ],
                         grammar: {
-                            title: "Danh động từ (Gerund) làm chủ ngữ & Mệnh đề chỉ mục đích",
-                            rule: "V-ing (Selecting...) + is + Adj + to V-infinitive (to avoid...)",
-                            example: "Selecting the right sample size is essential to achieve adequate statistical power."
+                            title: "Thì Hiện tại Tiếp diễn diễn tả kế hoạch đã định sẵn",
+                            rule: "S + am/is/are + V-ing + (thời gian/địa điểm cụ thể)",
+                            example: "I am staying at a hotel near the airport and returning on Friday."
                         }
                     },
                     {
-                        en: "Although multivariate logistic regression adjusts for potential confounding variables, researchers must still verify the goodness-of-fit of the final model.",
-                        vi: "Mặc dù hồi quy logistic đa biến hiệu chỉnh cho các biến gây nhiễu tiềm ẩn, các nhà nghiên cứu vẫn phải kiểm tra độ phù hợp của mô hình cuối cùng.",
+                        title: "Tình huống 2: Khai báo Hải quan & Hành lý",
+                        turns: [
+                            { role: "Customs Officer (Nhân viên Hải quan)", en: "Do you have anything to declare, such as restricted medications, food, or more than ten thousand dollars in cash?", vi: "Ông/bà có hàng hóa gì cần khai báo không, như thuốc hạn chế, thực phẩm, hoặc hơn 10.000 đô la tiền mặt?" },
+                            { role: "Passenger (Người nhập cảnh)", en: "No, I only have personal belongings and my prescribed medication with a doctor's note.", vi: "Không, tôi chỉ mang đồ dùng cá nhân và thuốc kê đơn có giấy xác nhận của bác sĩ." },
+                            { role: "Customs Officer (Nhân viên Hải quan)", en: "Alright. Please place your carry-on bag on the scanner belt. Thank you, welcome to our country.", vi: "Được rồi. Vui lòng đặt hành lý xách tay lên băng chuyền máy soi. Cảm ơn, chào mừng đến đất nước chúng tôi." }
+                        ],
                         vocab: [
-                            { word: "multivariate", ipa: "/ˌmʌl.tiˈver.i.ət/", mean: "đa biến" },
-                            { word: "confounding variable", ipa: "/kənˈfaʊn.dɪŋ ˈver.i.ə.bəl/", mean: "biến gây nhiễu" },
-                            { word: "goodness-of-fit", ipa: "/ˌɡʊd.nəs əv ˈfɪt/", mean: "độ phù hợp của mô hình" }
+                            { word: "declare", ipa: "/dɪˈkler/", mean: "khai báo (hải quan)" },
+                            { word: "personal belongings", ipa: "/ˈpɝː.sən.əl bɪˈlɑːŋ.ɪŋz/", mean: "đồ dùng cá nhân" },
+                            { word: "prescribed medication", ipa: "/prɪˈskraɪbd ˌmed.əˈkeɪ.ʃən/", mean: "thuốc được kê đơn" }
                         ],
                         grammar: {
-                            title: "Mệnh đề nhượng bộ với Although & Động từ khuyết thiếu Must",
-                            rule: "Although + S + V, S + must + V-bare",
-                            example: "Although the p-value is significant, we must evaluate the clinical relevance."
+                            title: "Câu hỏi nghi vấn với 'Anything' & Câu mệnh lệnh lịch sự",
+                            rule: "Do you have anything to + V-infinitive? / Please + V-bare...",
+                            example: "Do you have any liquids to declare? Please open your suitcase for inspection."
+                        }
+                    }
+                ],
+                biostat: [
+                    {
+                        title: "Thảo luận thiết kế nghiên cứu & Cỡ mẫu",
+                        turns: [
+                            { role: "Principal Investigator", en: "How did we calculate the required sample size for this clinical trial?", vi: "Chúng ta đã tính toán cỡ mẫu cần thiết cho thử nghiệm lâm sàng này như thế nào?" },
+                            { role: "Biostatistician", en: "We based it on an eighty percent statistical power and a five percent significance level, accounting for a ten percent dropout rate.", vi: "Chúng tôi dựa trên lực thống kê 80% và mức ý nghĩa 5%, có tính đến tỷ lệ bỏ cuộc 10%." }
+                        ],
+                        vocab: [
+                            { word: "statistical power", ipa: "/stəˈtɪs.tɪ.kəl ˈpaʊ.ɚ/", mean: "lực thống kê" },
+                            { word: "significance level", ipa: "/sɪɡˈnɪf.ə.kəns ˈlev.əl/", mean: "mức ý nghĩa thống kê" },
+                            { word: "dropout rate", ipa: "/ˈdrɑːp.aʊt reɪt/", mean: "tỷ lệ bệnh nhân bỏ cuộc/mất dấu" }
+                        ],
+                        grammar: {
+                            title: "Phân từ hiện tại (V-ing) rút gọn mệnh đề bổ sung",
+                            rule: "Main Clause + , accounting for / considering + Noun Phrase",
+                            example: "We ran a multivariate model, adjusting for age and baseline severity."
                         }
                     }
                 ],
                 pharma: [
                     {
-                        en: "Randomized controlled trials remain the gold standard for evaluating the efficacy and safety profile of novel pharmaceutical formulations before regulatory approval.",
-                        vi: "Các thử nghiệm ngẫu nhiên có đối chứng vẫn là tiêu chuẩn vàng để đánh giá hiệu quả và hồ sơ an toàn của các công thức dược phẩm mới trước khi được cơ quan quản lý phê duyệt.",
+                        title: "Tư vấn sử dụng thuốc & Tác dụng phụ",
+                        turns: [
+                            { role: "Pharmacist", en: "Take one tablet twice daily after meals. Avoid driving if you experience drowsiness.", vi: "Uống một viên hai lần mỗi ngày sau bữa ăn. Tránh lái xe nếu bạn cảm thấy buồn ngủ." },
+                            { role: "Patient", en: "Can I take this medication alongside my blood pressure pills?", vi: "Tôi có thể uống thuốc này cùng với thuốc huyết áp của tôi không?" },
+                            { role: "Pharmacist", en: "Yes, there are no known drug interactions between them, but space them two hours apart.", vi: "Được, không có tương tác thuốc nào được ghi nhận giữa chúng, nhưng hãy uống cách nhau 2 giờ." }
+                        ],
                         vocab: [
-                            { word: "efficacy", ipa: "/ˈef.ə.kə.si/", mean: "hiệu lực, hiệu quả điều trị" },
-                            { word: "formulation", ipa: "/ˌfɔːr.mjəˈleɪ.ʃən/", mean: "công thức bào chế" },
-                            { word: "regulatory approval", ipa: "/ˈreɡ.jə.lə.tɔːr.i əˈpruː.vəl/", mean: "sự phê duyệt của cơ quan quản lý" }
+                            { word: "drowsiness", ipa: "/ˈdraʊ.zi.nəs/", mean: "cơn buồn ngủ, sự lơ mơ" },
+                            { word: "drug interaction", ipa: "/drʌɡ ˌɪn.t̬ɚˈæk.ʃən/", mean: "tương tác thuốc" },
+                            { word: "space apart", ipa: "/speɪs əˈpɑːrt/", mean: "chia khoảng cách thời gian" }
                         ],
                         grammar: {
-                            title: "Giới từ đi kèm Danh động từ (Preposition + V-ing)",
-                            rule: "Noun + for + V-ing (evaluating...)",
-                            example: "This protocol is designed for monitoring adverse drug reactions in patients."
+                            title: "Câu điều kiện loại 1 trong hướng dẫn y khoa",
+                            rule: "Imperative (V-bare) + if + S + V (Present Simple)",
+                            example: "Consult your physician immediately if any allergic rash develops."
                         }
                     }
                 ],
                 conference: [
                     {
-                        en: "Distinguished guests and colleagues, it is my great honor to present our institution's latest longitudinal study on chronic disease management.",
-                        vi: "Kính thưa quý vị đại biểu và các đồng nghiệp, tôi rất vinh dự được trình bày nghiên cứu theo dõi dọc mới nhất của đơn vị chúng tôi về quản lý bệnh mạn tính.",
+                        title: "Trình bày kết quả & Trả lời câu hỏi phản biện",
+                        turns: [
+                            { role: "Speaker", en: "As illustrated in the Kaplan-Meier curve, overall survival was significantly higher in the treatment group.", vi: "Như minh họa trong đường cong Kaplan-Meier, tỷ lệ sống còn toàn bộ cao hơn đáng kể ở nhóm điều trị." },
+                            { role: "Moderator", en: "Thank you for a clear presentation. Could you elaborate on the limitations of your study?", vi: "Cảm ơn bài trình bày rõ ràng. Ông/bà có thể nói rõ hơn về những hạn chế của nghiên cứu không?" }
+                        ],
                         vocab: [
-                            { word: "distinguished", ipa: "/dɪˈstɪŋ.ɡwɪʃt/", mean: "ưu tú, lỗi lạc, kính mến" },
-                            { word: "longitudinal study", ipa: "/ˌlɑːn.dʒəˈtuː.dən.əl ˈstʌd.i/", mean: "nghiên cứu theo dõi dọc" },
-                            { word: "chronic", ipa: "/ˈkrɑː.nɪk/", mean: "mạn tính, kéo dài" }
+                            { word: "illustrate", ipa: "/ˈɪl.ə.streɪt/", mean: "minh họa, làm rõ" },
+                            { word: "elaborate on", ipa: "/iˈlæb.ə.reɪt ɑːn/", mean: "trình bày chi tiết, nói rõ thêm về" },
+                            { word: "limitation", ipa: "/ˌlɪm.əˈteɪ.ʃən/", mean: "hạn chế, điểm giới hạn" }
                         ],
                         grammar: {
-                            title: "Chủ ngữ giả 'It' trong văn phong trang trọng hội nghị",
-                            rule: "It is + my great honor / a privilege + to V-infinitive",
-                            example: "It is a privilege to welcome international scholars to our university."
+                            title: "Cấu trúc bị động so sánh trong báo cáo kết quả",
+                            rule: "S + was/were + Adv (significantly) + Comparative Adj + in + Group",
+                            example: "The incidence rate was markedly lower in the vaccinated cohort."
+                        }
+                    }
+                ],
+                hotel: [
+                    {
+                        title: "Làm thủ tục Nhận phòng Khách sạn (Check-in)",
+                        turns: [
+                            { role: "Receptionist", en: "Welcome to Grand Hotel. Do you have a reservation under your name?", vi: "Chào mừng đến khách sạn Grand. Quý khách có đặt phòng trước dưới tên mình không ạ?" },
+                            { role: "Guest", en: "Yes, my name is Nam Dao. I booked a deluxe room for four nights through the conference organizers.", vi: "Vâng, tên tôi là Nam Đào. Tôi đã đặt một phòng deluxe cho 4 đêm thông qua ban tổ chức hội nghị." }
+                        ],
+                        vocab: [
+                            { word: "deluxe room", ipa: "/dəˈlʌks ruːm/", mean: "phòng cao cấp" },
+                            { word: "organizer", ipa: "/ˈɔːr.ɡən.aɪ.zɚ/", mean: "ban tổ chức, người tổ chức" }
+                        ],
+                        grammar: {
+                            title: "Thì Quá khứ đơn diễn tả hành động đặt chỗ đã hoàn tất",
+                            rule: "S + booked / reserved + Object + for + Duration",
+                            example: "I reserved an airport shuttle for tomorrow morning at seven."
                         }
                     }
                 ],
                 admin: [
                     {
-                        en: "Implementing a centralized data governance framework allows the university to streamline administrative workflows and enhance decision-making efficiency.",
-                        vi: "Việc triển khai khung quản trị dữ liệu tập trung cho phép trường đại học tinh gọn quy trình hành chính và nâng cao hiệu quả ra quyết định.",
+                        title: "Họp triển khai Hệ thống Quản lý Số",
+                        turns: [
+                            { role: "Director", en: "How is the rollout of the new event management portal progressing?", vi: "Việc triển khai cổng thông tin quản lý sự kiện mới đang tiến triển thế nào rồi?" },
+                            { role: "Manager", en: "We have completed user testing and will launch the live system across all departments next Monday.", vi: "Chúng tôi đã hoàn tất kiểm thử người dùng và sẽ vận hành chính thức trên toàn bộ các phòng ban vào thứ Hai tới." }
+                        ],
                         vocab: [
-                            { word: "centralized", ipa: "/ˈsen.trə.laɪzd/", mean: "tập trung hóa" },
-                            { word: "governance", ipa: "/ˈɡʌv.ɚ.nəns/", mean: "sự quản trị, điều hành" },
-                            { word: "streamline", ipa: "/ˈstriːm.laɪn/", mean: "tinh gọn, hợp lý hóa" }
+                            { word: "rollout", ipa: "/ˈroʊl.aʊt/", mean: "sự triển khai, ra mắt hệ thống" },
+                            { word: "progress", ipa: "/prəˈɡres/", mean: "tiến triển, phát triển" }
                         ],
                         grammar: {
-                            title: "Cấu trúc cho phép / tạo điều kiện (Allow + Object + to V)",
-                            rule: "S + allow(s) + O + to V1 + and + V2",
-                            example: "Digital transformation allows staff to save time and reduce paperwork."
-                        }
-                    }
-                ],
-                ai_tech: [
-                    {
-                        en: "Artificial intelligence algorithms are increasingly integrated into diagnostic imaging to assist clinicians in detecting subtle pathological anomalies.",
-                        vi: "Các thuật toán trí tuệ nhân tạo ngày càng được tích hợp vào chẩn đoán hình ảnh nhằm hỗ trợ các bác sĩ lâm sàng phát hiện những bất thường bệnh lý tinh vi.",
-                        vocab: [
-                            { word: "algorithm", ipa: "/ˈæl.ɡə.rɪ.ðəm/", mean: "thuật toán" },
-                            { word: "clinician", ipa: "/klɪˈnɪʃ.ən/", mean: "bác sĩ lâm sàng" },
-                            { word: "anomaly", ipa: "/əˈnɑː.mə.li/", mean: "sự bất thường, dị thường" }
-                        ],
-                        grammar: {
-                            title: "Thể bị động hiện tại tiếp diễn với Trạng từ bổ nghĩa",
-                            rule: "S + are + Adv (increasingly) + V3/ed (integrated) + into + N",
-                            example: "Machine learning models are widely applied in predictive healthcare analytics."
-                        }
-                    }
-                ],
-                negotiation: [
-                    {
-                        en: "We are keen to establish a mutually beneficial partnership that fosters academic exchange and joint research initiatives between our two institutions.",
-                        vi: "Chúng tôi mong muốn thiết lập mối quan hệ đối tác cùng có lợi nhằm thúc đẩy trao đổi học thuật và các sáng kiến nghiên cứu chung giữa hai đơn vị.",
-                        vocab: [
-                            { word: "mutually beneficial", ipa: "/ˈmjuː.tʃu.ə.li ˌben.əˈfɪʃ.əl/", mean: "cùng có lợi" },
-                            { word: "foster", ipa: "/ˈfɑː.stɚ/", mean: "thúc đẩy, bồi dưỡng" },
-                            { word: "initiative", ipa: "/ɪˈnɪʃ.ə.t̬ɪv/", mean: "sáng kiến, chương trình" }
-                        ],
-                        grammar: {
-                            title: "Mệnh đề quan hệ xác định dùng 'That'",
-                            rule: "Noun + that + V (fosters) + O",
-                            example: "We signed a memorandum of understanding that promotes faculty mobility."
-                        }
-                    }
-                ],
-                travel: [
-                    {
-                        en: "Excuse me, could you direct me to the international transfer desk? My connecting flight was delayed due to inclement weather conditions.",
-                        vi: "Xin lỗi, bạn có thể chỉ cho tôi đường đến quầy nối chuyến quốc tế không? Chuyến bay nối chuyến của tôi bị hoãn do điều kiện thời tiết xấu.",
-                        vocab: [
-                            { word: "connecting flight", ipa: "/kəˈnek.tɪŋ flaɪt/", mean: "chuyến bay nối chuyến" },
-                            { word: "inclement", ipa: "/ɪnˈklem.ənt/", mean: "khắc nghiệt, xấu (thời tiết)" },
-                            { word: "transfer desk", ipa: "/ˈtræns.fɝː desk/", mean: "quầy làm thủ tục chuyển tiếp" }
-                        ],
-                        grammar: {
-                            title: "Câu hỏi đề nghị lịch sự với 'Could you' & Cụm giới từ 'Due to'",
-                            rule: "Could you + V-bare...? / S + was V3 + due to + Noun Phrase",
-                            example: "Could you confirm my reservation? The schedule changed due to heavy traffic."
-                        }
-                    }
-                ],
-                daily: [
-                    {
-                        en: "Let us review the agenda items briefly so that everyone is aligned on the key deliverables before the end of this week.",
-                        vi: "Hãy cùng xem lướt qua các mục trong chương trình nghị sự để mọi người thống nhất về các đầu việc chính trước cuối tuần này.",
-                        vocab: [
-                            { word: "agenda", ipa: "/əˈdʒen.də/", mean: "chương trình nghị sự, nội dung họp" },
-                            { word: "aligned", ipa: "/əˈlaɪnd/", mean: "thống nhất, đồng thuận" },
-                            { word: "deliverable", ipa: "/dɪˈlɪv.ɚ.ə.bəl/", mean: "sản phẩm/kết quả đầu ra cần bàn giao" }
-                        ],
-                        grammar: {
-                            title: "Cấu trúc rủ rê 'Let us' & Mệnh đề chỉ mục đích 'So that'",
-                            rule: "Let us + V-bare + so that + S + V",
-                            example: "Let us finalize the logistics checklist so that the event runs smoothly."
+                            title: "Kết hợp Hiện tại Hoàn thành & Tương lai Đơn",
+                            rule: "S + have/has + V3/ed + and + will + V-bare",
+                            example: "We have finalized the schedule and will distribute it to all delegates."
                         }
                     }
                 ]
             };
 
-            let currentTopicKey = "biostat";
+            let currentTopicKey = "immigration";
             let currentClipIndex = 0;
             let isSubVisible = true;
-            let customClipsList = null;
+            let customDialogueObj = null;
+            let isPlayingSequence = false;
 
-            function renderLessonObject(clip, badgeText) {
+            function renderDialogueScene(sceneObj, badgeText) {
                 document.getElementById('clip-badge').innerText = badgeText;
-                document.getElementById('clip-en').innerText = clip.en;
-                document.getElementById('clip-vi').innerText = clip.vi;
+                let container = document.getElementById('subtitle-container');
+                let html = "";
 
+                sceneObj.turns.forEach((turn, idx) => {
+                    let roleClass = idx % 2 === 1 ? "turn-box role-b" : "turn-box";
+                    let blurClass = isSubVisible ? "" : "sub-hidden";
+                    html += `
+                        <div class="${roleClass}">
+                            <div class="role-label">
+                                <span>${turn.role}</span>
+                                <button class="btn-outline-blue" style="padding:2px 8px; font-size:11px; background:rgba(255,255,255,0.9);" onclick="speakText('${turn.en.replace(/'/g, "\\'")}', 0.95)">Nghe câu này</button>
+                            </div>
+                            <div class="sub-en ${blurClass}">${turn.en}</div>
+                            <div class="sub-vi ${blurClass}">${turn.vi}</div>
+                        </div>
+                    `;
+                });
+                container.innerHTML = html;
+
+                // Render Từ vựng
                 let vocabHtml = "";
-                clip.vocab.forEach(v => {
+                sceneObj.vocab.forEach(v => {
                     vocabHtml += `
                         <div class="vocab-card">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -984,30 +1018,34 @@ with tab3:
                 });
                 document.getElementById('related-vocab-list').innerHTML = vocabHtml;
 
+                // Render Ngữ pháp
                 document.getElementById('related-grammar-box').innerHTML = `
                     <div class="grammar-card">
-                        <div style="font-weight:bold; color:#084298; font-size:14px; margin-bottom:5px;">${clip.grammar.title}</div>
+                        <div style="font-weight:bold; color:#084298; font-size:14px; margin-bottom:5px;">${sceneObj.grammar.title}</div>
                         <div style="background:#ffffff; padding:6px 8px; border-radius:4px; font-family:monospace; font-size:12px; color:#d63384; margin-bottom:6px;">
-                            ${clip.grammar.rule}
+                            ${sceneObj.grammar.rule}
                         </div>
                         <div style="font-size:13px; color:#333;">
-                            <b>Ví dụ mở rộng:</b> <i>"${clip.grammar.example}"</i>
-                            <button class="btn-outline-blue" style="padding:2px 7px; font-size:11px; margin-left:5px;" onclick="speakText('${clip.grammar.example.replace(/'/g, "\\'")}', 0.95)">Nghe</button>
+                            <b>Ví dụ mở rộng:</b> <i>"${sceneObj.grammar.example}"</i>
+                            <button class="btn-outline-blue" style="padding:2px 7px; font-size:11px; margin-left:5px;" onclick="speakText('${sceneObj.grammar.example.replace(/'/g, "\\'")}', 0.95)">Nghe</button>
                         </div>
                     </div>
                 `;
             }
 
             function renderVideoLesson() {
-                let clips = customClipsList ? customClipsList : LESSON_DATA[currentTopicKey];
-                let clip = clips[currentClipIndex];
-                let badge = customClipsList ? `CHỦ ĐỀ TỰ CHỌN - ĐOẠN 0${currentClipIndex + 1} / 0${clips.length}` : `BÀI NGHE THỰC TẾ 0${currentClipIndex + 1} / 0${clips.length}`;
-                renderLessonObject(clip, badge);
+                if (customDialogueObj) {
+                    renderDialogueScene(customDialogueObj, customDialogueObj.title);
+                } else {
+                    let list = DIALOGUE_BANK[currentTopicKey];
+                    let scene = list[currentClipIndex];
+                    renderDialogueScene(scene, `${scene.title} (${currentClipIndex + 1}/${list.length})`);
+                }
             }
 
             function changeVideoLesson() {
                 stopClip();
-                customClipsList = null;
+                customDialogueObj = null;
                 currentTopicKey = document.getElementById('video-topic-select').value;
                 currentClipIndex = 0;
                 renderVideoLesson();
@@ -1015,61 +1053,58 @@ with tab3:
 
             function nextClipInTopic() {
                 stopClip();
-                let clips = customClipsList ? customClipsList : LESSON_DATA[currentTopicKey];
-                currentClipIndex = (currentClipIndex + 1) % clips.length;
+                if (customDialogueObj) {
+                    customDialogueObj = null;
+                }
+                let list = DIALOGUE_BANK[currentTopicKey];
+                currentClipIndex = (currentClipIndex + 1) % list.length;
                 renderVideoLesson();
             }
 
-            // Tự động tạo bài học AI từ bất kỳ chủ đề nào người dùng nhập vào
-            async function generateCustomTopic() {
+            // TẠO HỘI THOẠI NHẬP VAI THỰC TẾ THEO CHỦ ĐỀ NGƯỜI DÙNG NHẬP
+            async function generateCustomDialogue() {
                 let rawTopic = document.getElementById('custom-topic-input').value.trim();
                 if (!rawTopic) {
-                    alert("Vui lòng nhập chủ đề bạn muốn học vào ô trống!");
+                    alert("Vui lòng nhập tình huống hội thoại bạn muốn học!");
                     return;
                 }
                 stopClip();
                 let btn = document.getElementById('btn-gen-topic');
-                btn.innerText = "Đang tạo dữ liệu...";
+                btn.innerText = "Đang tạo hội thoại...";
                 btn.disabled = true;
 
                 try {
-                    // Dịch chủ đề sang tiếng Anh nếu người dùng gõ tiếng Việt
+                    let lower = rawTopic.toLowerCase();
+                    // Nếu từ khóa liên quan đến nhập cảnh / sân bay / hải quan -> Nạp ngay tình huống nhập cảnh chuẩn xác
+                    if (lower.includes("nhập cảnh") || lower.includes("hải quan") || lower.includes("sân bay") || lower.includes("hộ chiếu") || lower.includes("immigration") || lower.includes("customs")) {
+                        customDialogueObj = DIALOGUE_BANK["immigration"][0];
+                        renderDialogueScene(customDialogueObj, `TÌNH HUỐNG TỰ CHỌN: ${rawTopic.toUpperCase()}`);
+                        return;
+                    }
+
+                    // Với bất kỳ tình huống nào khác, dịch chủ đề sang tiếng Anh và dựng hội thoại đối đáp 2 vai tự nhiên
                     let enTopic = rawTopic;
                     if (/[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(rawTopic)) {
                         enTopic = await translateText(rawTopic, 'vi', 'en');
                     }
 
-                    // Tìm kiếm đoạn văn học thuật/thực tế liên quan từ Wikipedia API
-                    let enParagraph = "";
-                    try {
-                        let searchRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(enTopic)}&format=json&origin=*`);
-                        let searchData = await searchRes.json();
-                        if (searchData.query && searchData.query.search.length > 0) {
-                            let pageTitle = searchData.query.search[0].title;
-                            let summaryRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(pageTitle)}`);
-                            let summaryData = await summaryRes.json();
-                            if (summaryData.extract) {
-                                // Lấy 2 câu đầu tiên súc tích nhất
-                                let sentences = summaryData.extract.match(/[^.!?]+[.!?]+/g) || [summaryData.extract];
-                                enParagraph = sentences.slice(0, 2).join(" ").trim();
-                            }
-                        }
-                    } catch(e) {}
+                    let turnsEn = [
+                        { role: "Person A (Đối tác / Nhân viên)", en: `Good morning. How can I assist you today regarding ${enTopic}?` },
+                        { role: "Person B (Bạn / Khách)", en: `Hello, I need some information and assistance with ${enTopic}. Could you guide me through the procedure?` },
+                        { role: "Person A (Đối tác / Nhân viên)", en: `Certainly. Please provide your relevant documents first, and we will process your request right away.` },
+                        { role: "Person B (Bạn / Khách)", en: `Thank you very much for your prompt support. Here are the details you requested.` }
+                    ];
 
-                    // Dự phòng nếu chủ đề mang tính hội thoại đời thường không có trên Wiki
-                    if (!enParagraph) {
-                        enParagraph = `In today's session, we will focus on practical communication and specialized terminology regarding ${enTopic}. Mastering these expressions will significantly improve your fluency and confidence in professional discussions.`;
+                    let turnsFull = [];
+                    for (let t of turnsEn) {
+                        let viText = await translateText(t.en, 'en', 'vi');
+                        turnsFull.push({ role: t.role, en: t.en, vi: viText });
                     }
 
-                    let viParagraph = await translateText(enParagraph, 'en', 'vi');
-
-                    // Trích xuất các từ khóa dài (> 6 ký tự) để làm danh sách từ vựng trọng tâm
-                    let words = enParagraph.replace(/[^a-zA-Z\s]/g, "").split(/\s+/);
-                    let uniqueLongWords = [...new Set(words.filter(w => w.length >= 7))].slice(0, 4);
-                    if (uniqueLongWords.length === 0) uniqueLongWords = enTopic.split(/\s+/).slice(0, 3);
-
-                    let vocabItems = [];
-                    for (let w of uniqueLongWords) {
+                    // Tạo từ vựng liên quan từ chủ đề
+                    let topicWords = enTopic.replace(/[^a-zA-Z\s]/g, "").split(/\s+/).filter(w => w.length >= 4);
+                    let vocabList = [];
+                    for (let w of topicWords.slice(0, 3)) {
                         let cleanW = w.toLowerCase();
                         let meanVi = await translateText(cleanW, 'en', 'vi');
                         let ipaStr = "";
@@ -1080,69 +1115,70 @@ with tab3:
                                 ipaStr = dData[0].phonetic || (dData[0].phonetics.find(p => p.text) || {}).text || "";
                             }
                         } catch(e) {}
-                        vocabItems.push({ word: cleanW, ipa: ipaStr, mean: meanVi });
+                        vocabList.push({ word: cleanW, ipa: ipaStr, mean: meanVi });
                     }
+                    vocabList.push({ word: "procedure", ipa: "/prəˈsiː.dʒɚ/", mean: "thủ tục, quy trình" });
 
-                    // Phân tích ngữ pháp tự động dựa trên câu vừa tạo
-                    let grammarInfo = {
-                        title: "Cấu trúc Câu phức Học thuật & Cụm danh từ chuyên ngành",
-                        rule: "Prepositional Phrase + S + V (Present/Future) + Object",
-                        example: `Understanding the core principles of ${enTopic} is essential for effective communication.`
+                    customDialogueObj = {
+                        title: `HỘI THOẠI THỰC TẾ: ${rawTopic.toUpperCase()}`,
+                        turns: turnsFull,
+                        vocab: vocabList,
+                        grammar: {
+                            title: "Mẫu câu Đề nghị Hỗ trợ Lịch sự trong Giao tiếp Thực tế",
+                            rule: "Could you guide me through + Noun? / How can I assist you regarding + Noun?",
+                            example: `Could you clarify the requirements for ${enTopic}?`
+                        }
                     };
-                    if (enParagraph.includes(" which ") || enParagraph.includes(" that ")) {
-                        grammarInfo = {
-                            title: "Mệnh đề quan hệ mở rộng thông tin (Relative Clauses)",
-                            rule: "Noun + which / that + V + O",
-                            example: `We examined the factors that influence ${enTopic} in real-world settings.`
-                        };
-                    } else if (/\b(is|are|was|were)\s+\w+ed\b/.test(enParagraph)) {
-                        grammarInfo = {
-                            title: "Câu bị động khách quan trong văn phong khoa học (Passive Voice)",
-                            rule: "S + to be + V3/ed (Past Participle)",
-                            example: `Various methodologies are applied when analyzing ${enTopic}.`
-                        };
-                    }
-
-                    customClipsList = [{
-                        en: enParagraph,
-                        vi: viParagraph,
-                        vocab: vocabItems,
-                        grammar: grammarInfo
-                    }];
-                    currentClipIndex = 0;
-                    renderLessonObject(customClipsList[0], `CHỦ ĐỀ TỰ CHỌN: ${rawTopic.toUpperCase()}`);
+                    renderVideoLesson();
                 } catch (err) {
-                    alert("Có lỗi khi kết nối dữ liệu chủ đề, vui lòng thử lại!");
+                    alert("Có lỗi kết nối khi tạo hội thoại, vui lòng thử lại!");
                 } finally {
-                    btn.innerText = "Tạo bài học AI theo chủ đề";
+                    btn.innerText = "Tạo hội thoại thực tế";
                     btn.disabled = false;
                 }
             }
 
-            function playCurrentClip(rate) {
-                let text = document.getElementById('clip-en').innerText;
+            // Phát lần lượt từng câu đối thoại 2 vai
+            function playFullDialogue(rate) {
+                if (!('speechSynthesis' in window)) return;
+                stopClip();
+
+                let scene = customDialogueObj ? customDialogueObj : DIALOGUE_BANK[currentTopicKey][currentClipIndex];
+                let turns = scene.turns;
                 let wave = document.getElementById('wave-indicator');
                 let status = document.getElementById('player-status');
-                
-                if ('speechSynthesis' in window) {
-                    window.speechSynthesis.cancel();
-                    let utterance = new SpeechSynthesisUtterance(text);
-                    utterance.lang = 'en-US';
-                    utterance.rate = rate;
-                    
-                    utterance.onstart = function() {
-                        wave.classList.add('playing');
-                        status.innerText = rate === 1.0 ? "Đang phát tốc độ chuẩn (1.0x)..." : "Đang phát tốc độ chậm (0.65x) để luyện nghe rõ từng âm...";
-                    };
-                    utterance.onend = function() {
+
+                isPlayingSequence = true;
+                wave.classList.add('playing');
+
+                let index = 0;
+                function speakNextTurn() {
+                    if (!isPlayingSequence || index >= turns.length) {
                         wave.classList.remove('playing');
                         status.innerText = "Đã phát xong đoạn hội thoại.";
+                        isPlayingSequence = false;
+                        return;
+                    }
+
+                    status.innerText = `Đang đọc lượt ${index + 1}/${turns.length} (${rate}x)...`;
+                    let utterance = new SpeechSynthesisUtterance(turns[index].en);
+                    utterance.lang = 'en-US';
+                    utterance.rate = rate;
+                    // Đổi cao độ giọng nhẹ giữa vai A và vai B cho sinh động
+                    utterance.pitch = index % 2 === 0 ? 0.95 : 1.15;
+
+                    utterance.onend = function() {
+                        index++;
+                        setTimeout(speakNextTurn, 350);
                     };
                     window.speechSynthesis.speak(utterance);
                 }
+
+                speakNextTurn();
             }
 
             function stopClip() {
+                isPlayingSequence = false;
                 if ('speechSynthesis' in window) {
                     window.speechSynthesis.cancel();
                 }
@@ -1154,22 +1190,19 @@ with tab3:
 
             function toggleSubtitle() {
                 isSubVisible = !isSubVisible;
-                let subBox = document.getElementById('subtitle-container');
                 let btn = document.getElementById('btn-toggle-sub');
-                if (isSubVisible) {
-                    subBox.classList.remove('sub-hidden');
-                    btn.innerText = "Ẩn phụ đề";
-                } else {
-                    subBox.classList.add('sub-hidden');
-                    btn.innerText = "Hiện phụ đề";
-                }
+                document.querySelectorAll('.sub-en, .sub-vi').forEach(el => {
+                    if (isSubVisible) el.classList.remove('sub-hidden');
+                    else el.classList.add('sub-hidden');
+                });
+                btn.innerText = isSubVisible ? "Ẩn phụ đề" : "Hiện phụ đề";
             }
 
             renderVideoLesson();
 
             function speakText(text, rate = 1.0) {
+                stopClip();
                 if ('speechSynthesis' in window) {
-                    window.speechSynthesis.cancel();
                     let utterance = new SpeechSynthesisUtterance(text);
                     utterance.lang = 'en-US';
                     utterance.rate = rate;
@@ -1213,18 +1246,17 @@ with tab3:
             }
 
             const SENTENCE_BANK = {
+                immigration: [
+                    { en: "Here is my passport and return ticket. I am here for an international medical conference.", vi: "Đây là hộ chiếu và vé khứ hồi của tôi. Tôi đến đây để tham dự một hội nghị y khoa quốc tế." },
+                    { en: "I have nothing to declare, only personal belongings and prescribed medication.", vi: "Tôi không có gì cần khai báo, chỉ có đồ dùng cá nhân và thuốc kê đơn." }
+                ],
                 medical: [
                     { en: "Statistical thinking is essential for evidence-based medical research.", vi: "Tư duy thống kê là yếu tố thiết yếu cho nghiên cứu y học dựa trên bằng chứng." },
-                    { en: "The clinical trial demonstrated a significant improvement in patient outcomes.", vi: "Thử nghiệm lâm sàng đã chứng minh sự cải thiện đáng kể về kết quả điều trị của bệnh nhân." },
-                    { en: "Multivariate logistic regression was performed to identify independent risk factors.", vi: "Hồi quy logistic đa biến đã được thực hiện để xác định các yếu tố nguy cơ độc lập." }
+                    { en: "The clinical trial demonstrated a significant improvement in patient outcomes.", vi: "Thử nghiệm lâm sàng đã chứng minh sự cải thiện đáng kể về kết quả điều trị của bệnh nhân." }
                 ],
                 academic: [
                     { en: "Thank you for the opportunity to present our latest research findings today.", vi: "Cảm ơn vì cơ hội được trình bày những phát hiện nghiên cứu mới nhất của chúng tôi hôm nay." },
                     { en: "As shown in the figure, there is a strong correlation between the two variables.", vi: "Như được thể hiện trong biểu đồ, có một mối tương quan chặt chẽ giữa hai biến số." }
-                ],
-                daily: [
-                    { en: "Could you please share the presentation slides before the meeting starts?", vi: "Bạn có thể vui lòng chia sẻ các trang trình bày trước khi cuộc họp bắt đầu không?" },
-                    { en: "Let us schedule a follow-up discussion next week to finalize the plan.", vi: "Hãy lên lịch thảo luận tiếp theo vào tuần tới để hoàn thiện kế hoạch." }
                 ]
             };
 
@@ -1293,4 +1325,4 @@ with tab3:
     </body>
     </html>
     """
-    components.html(english_tutor_html, height=720)
+    components.html(english_tutor_html, height=850, scrolling=True)
