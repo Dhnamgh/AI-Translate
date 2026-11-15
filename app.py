@@ -1,3 +1,5 @@
+import io
+import re
 import time
 import json
 import asyncio
@@ -13,13 +15,19 @@ st.set_page_config(page_title="AI Translate Cabin Pro", layout="wide")
 
 st.markdown("""
 <style>
+    /* Chống tràn ngang toàn trang trên điện thoại */
+    html, body, [data-testid="stAppViewContainer"] {
+        max-width: 100vw !important;
+        overflow-x: hidden !important;
+    }
+
     h1, h2, h3, h4, h5, h6, 
     .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4, .stMarkdown h5, .stMarkdown h6 {
         font-family: 'Times New Roman', Times, serif !important;
         font-size: 13px !important;
     }
     
-    .stSelectbox label p, .stTextArea label p, .stSlider label p {
+    .stSelectbox label p, .stTextArea label p, .stSlider label p, .stFileUploader label p {
         font-family: 'Times New Roman', Times, serif !important;
         font-size: 13px !important;
         font-weight: bold !important;
@@ -30,25 +38,24 @@ st.markdown("""
         font-size: 13px !important;
     }
 
-    /* Thanh Tab Menu màu xanh đồng bộ, hỗ trợ cuộn ngang trên điện thoại */
+    /* Thanh Tab Menu màu xanh đồng bộ, tự co giãn trên mọi màn hình */
     .stTabs [data-baseweb="tab-list"] {
         background-color: #0d6efd;
-        padding: 6px 8px 0px 8px;
+        padding: 6px 6px 0px 6px;
         border-radius: 8px 8px 0px 0px;
-        gap: 6px;
+        gap: 4px;
         border-bottom: 2px solid #0a58ca;
-        overflow-x: auto;
-        white-space: nowrap;
-        flex-wrap: nowrap;
+        display: flex;
+        flex-wrap: wrap;
     }
 
     .stTabs button[data-baseweb="tab"] {
         background-color: rgba(255, 255, 255, 0.15);
         color: #ffffff !important;
         border-radius: 6px 6px 0px 0px;
-        padding: 10px 16px;
+        padding: 8px 12px;
         border: none !important;
-        flex-shrink: 0;
+        flex: 1 1 auto;
         transition: all 0.25s ease;
     }
 
@@ -64,7 +71,7 @@ st.markdown("""
 
     .stTabs button[data-baseweb="tab"] p {
         font-family: 'Times New Roman', Times, serif !important;
-        font-size: 14px !important;
+        font-size: 13px !important;
         font-weight: bold !important;
     }
 
@@ -77,7 +84,7 @@ st.markdown("""
         border: 1px solid #dee2e6;
         border-top: none;
         border-radius: 0px 0px 8px 8px;
-        padding: 15px;
+        padding: 12px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.05);
     }
 
@@ -93,6 +100,7 @@ st.markdown("""
         font-size: 15px;
         line-height: 1.6;
         white-space: pre-wrap;
+        word-wrap: break-word;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -173,6 +181,51 @@ def create_mp3(text, voice_key, speed_rate, filename="translated_output.mp3"):
     except Exception:
         return False
 
+def extract_uploaded_document(uploaded_file):
+    """Đọc nội dung từ file Word (.docx), PDF (.pdf) hoặc TXT"""
+    if uploaded_file is None:
+        return ""
+    file_name = uploaded_file.name.lower()
+    raw_bytes = uploaded_file.read()
+    text_content = ""
+
+    if file_name.endswith(".txt"):
+        text_content = raw_bytes.decode("utf-8", errors="ignore")
+    elif file_name.endswith(".docx"):
+        try:
+            import docx
+            doc = docx.Document(io.BytesIO(raw_bytes))
+            text_content = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+        except ImportError:
+            # Dự phòng đọc trực tiếp XML bên trong file .docx nếu chưa cài python-docx
+            import zipfile
+            import xml.etree.ElementTree as ET
+            with zipfile.ZipFile(io.BytesIO(raw_bytes)) as z:
+                xml_content = z.read("word/document.xml")
+                tree = ET.fromstring(xml_content)
+                paragraphs = []
+                for elem in tree.iter():
+                    if elem.tag.endswith('}p'):
+                        texts = [t.text for t in elem.iter() if t.tag.endswith('}t') and t.text]
+                        if texts:
+                            paragraphs.append("".join(texts))
+                text_content = "\n".join(paragraphs)
+    elif file_name.endswith(".pdf"):
+        try:
+            import pypdf
+            reader = pypdf.PdfReader(io.BytesIO(raw_bytes))
+            pages = [page.extract_text() or "" for page in reader.pages]
+            text_content = "\n".join(pages)
+        except ImportError:
+            try:
+                import PyPDF2
+                reader = PyPDF2.PdfReader(io.BytesIO(raw_bytes))
+                pages = [page.extract_text() or "" for page in reader.pages]
+                text_content = "\n".join(pages)
+            except ImportError:
+                return "[Vui lòng thêm thư viện pypdf vào requirements.txt để đọc file PDF]"
+    return text_content.strip()
+
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
@@ -192,7 +245,7 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 # ==============================================================================
-# TAB 1: BỐ CỤC 2 CỘT NGANG HÀNG
+# TAB 1: BỐ CỤC 2 CỘT NGANG HÀNG (KHÓA CỨNG)
 # ==============================================================================
 with tab1:
     st.subheader("Dịch văn bản & Hội thoại chuyên sâu")
@@ -243,7 +296,7 @@ with tab1:
                 pass
 
 # ==============================================================================
-# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP
+# TAB 2: CABIN PHIÊN DỊCH TRỰC TIẾP (KHÓA CỨNG)
 # ==============================================================================
 with tab2:
     st.subheader("Phiên dịch Hội nghị Trực tiếp (Cabin Song Song)")
@@ -266,16 +319,17 @@ with tab2:
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         <style>
-            .cabin-box { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 12px; padding: 15px; text-align: center; }
-            .btn-control { font-family: 'Times New Roman', Times, serif !important; padding: 12px 24px; font-size: 14px !important; font-weight: bold; border-radius: 8px; border: none; cursor: pointer; margin: 5px; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+            * { box-sizing: border-box; }
+            .cabin-box { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 12px; padding: 12px; text-align: center; width: 100%; }
+            .btn-control { font-family: 'Times New Roman', Times, serif !important; padding: 10px 18px; font-size: 14px !important; font-weight: bold; border-radius: 8px; border: none; cursor: pointer; margin: 4px; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
             .btn-start { background-color: #0d6efd; }
             .btn-stop { background-color: #dc3545; }
-            #status-badge { font-family: 'Times New Roman', Times, serif !important; margin-top: 10px; font-weight: bold; font-size: 13px !important; color: #0d6efd; }
-            .cabin-grid { display: flex; flex-direction: row; gap: 15px; margin-top: 15px; }
-            .cabin-panel { flex: 1; background: #ffffff; border: 1px solid #ced4da; border-radius: 8px; padding: 15px; text-align: left; height: 480px; overflow-y: auto; box-shadow: inset 0 0 5px rgba(0,0,0,0.05); }
+            #status-badge { font-family: 'Times New Roman', Times, serif !important; margin-top: 8px; font-weight: bold; font-size: 13px !important; color: #0d6efd; }
+            .cabin-grid { display: flex; flex-direction: row; gap: 12px; margin-top: 12px; }
+            .cabin-panel { flex: 1; background: #ffffff; border: 1px solid #ced4da; border-radius: 8px; padding: 12px; text-align: left; height: 460px; overflow-y: auto; box-shadow: inset 0 0 5px rgba(0,0,0,0.05); }
             .panel-title { font-family: 'Times New Roman', Times, serif !important; font-weight: bold; font-size: 14px !important; margin-bottom: 10px; border-bottom: 1px solid #e9ecef; padding-bottom: 5px; }
-            .panel-content { font-size: 16px; line-height: 1.6; word-wrap: break-word; }
-            @media (max-width: 768px) { .cabin-grid { flex-direction: column; } .cabin-panel { height: 280px; } }
+            .panel-content { font-size: 15px; line-height: 1.6; word-wrap: break-word; }
+            @media (max-width: 768px) { .cabin-grid { flex-direction: column; } .cabin-panel { height: 260px; } }
         </style>
     </head>
     <body>
@@ -467,15 +521,65 @@ with tab2:
         .replace("__TGT_CODE__", tgt_code_val)
         .replace("__LANG_JS__", lang_code_js)
     )
-    components.html(cabin_html_code, height=720, scrolling=True)
+    components.html(cabin_html_code, height=700, scrolling=True)
 
 # ==============================================================================
-# TAB 3: HỌC TIẾNG ANH CÙNG AI (BÀI GIẢNG & KỊCH BẢN + TẢI FILE WORD + HỘI THOẠI)
+# TAB 3: HỌC TIẾNG ANH CÙNG AI (TẢI FILE WORD/PDF + PHÂN LOẠI NGỮ CẢNH + MOBILE)
 # ==============================================================================
 with tab3:
-    st.subheader("Hệ thống Học Tiếng Anh & Soạn Kịch bản Giảng dạy cùng AI")
+    st.subheader("Hệ thống Học Tiếng Anh & Soạn Bài giảng từ Tài liệu")
 
-    english_tutor_html = """
+    # Khu vực tải tài liệu Word / PDF lên để tạo chủ đề học tập
+    with st.expander("Tải tài liệu lên (Word .docx / PDF .pdf / TXT) để tạo bài học tự động", expanded=False):
+        uploaded_doc = st.file_uploader("Chọn file bài giảng, bài báo hoặc tài liệu giao tiếp:", type=["docx", "pdf", "txt"], key="t3_doc_upload")
+        if uploaded_doc is not None:
+            if st.button("Phân tích & Tạo bài học từ file đã tải lên", type="primary", key="btn_process_doc"):
+                with st.spinner("Đang đọc tài liệu và trích xuất nội dung học tập..."):
+                    extracted = extract_uploaded_document(uploaded_doc)
+                    if extracted and not extracted.startswith("[Vui lòng"):
+                        # Cắt tối đa 2500 ký tự đầu tiên để chia thành các đoạn học tập súc tích
+                        clean_doc = re.sub(r'\n+', '\n', extracted)[:2500]
+                        raw_paras = [p.strip() for p in clean_doc.split('\n') if len(p.strip()) > 15][:5]
+                        
+                        # Phát hiện xem tài liệu gốc là tiếng Việt hay tiếng Anh
+                        is_vi_doc = bool(re.search(r'[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]', clean_doc, re.I))
+                        
+                        doc_sections = []
+                        all_en_text = ""
+                        for idx, p in enumerate(raw_paras):
+                            if is_vi_doc:
+                                en_p = translate_stable(p, "vi", "en")
+                                vi_p = p
+                            else:
+                                en_p = p
+                                vi_p = translate_stable(p, "en", "vi")
+                            all_en_text += " " + en_p
+                            doc_sections.append({
+                                "heading": f"Phần {idx + 1}: Nội dung trích xuất từ tài liệu",
+                                "en": en_p,
+                                "vi": vi_p
+                            })
+
+                        # Trích xuất từ vựng chuyên ngành từ đoạn tiếng Anh
+                        words = re.findall(r'\b[a-zA-Z]{7,}\b', all_en_text)
+                        unique_words = list(dict.fromkeys([w.lower() for w in words]))[:6]
+                        vocab_extracted = []
+                        for w in unique_words:
+                            mean_w = translate_stable(w, "en", "vi")
+                            vocab_extracted.append({"word": w, "mean": mean_w})
+
+                        st.session_state["uploaded_lecture_json"] = json.dumps({
+                            "title": f"BÀI HỌC TỪ TÀI LIỆU: {uploaded_doc.name.upper()}",
+                            "sections": doc_sections,
+                            "vocab": vocab_extracted
+                        }, ensure_ascii=False)
+                        st.success("Đã tạo xong bài học từ tài liệu! Xem nội dung chi tiết ở khung bên dưới.")
+                    else:
+                        st.warning(extracted or "Không tìm thấy văn bản trong file.")
+
+    uploaded_json_str = st.session_state.get("uploaded_lecture_json", "null")
+
+    english_tutor_template = """
     <!DOCTYPE html>
     <html>
     <head>
@@ -483,51 +587,55 @@ with tab3:
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         <style>
             * { box-sizing: border-box; }
-            body {
+            html, body {
+                width: 100%;
+                max-width: 100%;
+                overflow-x: hidden;
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
                 background-color: #f4f6f9;
                 margin: 0;
-                padding: 8px;
+                padding: 4px;
                 color: #212529;
             }
-            /* Menu xanh 5 chức năng co giãn mượt trên PC & Mobile */
+            /* Menu xanh co giãn vừa khít chiều ngang điện thoại, không phải kéo qua lại */
             .blue-menu-bar {
                 display: grid;
                 grid-template-columns: repeat(5, 1fr);
                 background-color: #0d6efd;
                 border-radius: 8px;
-                padding: 5px;
-                gap: 5px;
-                margin-bottom: 12px;
-                box-shadow: 0 3px 8px rgba(13, 110, 253, 0.25);
+                padding: 4px;
+                gap: 4px;
+                margin-bottom: 10px;
+                width: 100%;
             }
-            @media (max-width: 900px) {
+            @media (max-width: 850px) {
                 .blue-menu-bar {
                     grid-template-columns: repeat(2, 1fr);
                 }
             }
             .menu-item {
-                padding: 10px 10px;
+                padding: 9px 8px;
                 border: none;
                 border-radius: 6px;
                 background-color: transparent;
                 color: #ffffff;
                 font-weight: bold;
                 cursor: pointer;
-                font-size: 13px;
+                font-size: 12px;
                 text-align: center;
                 transition: all 0.2s ease;
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
+                word-break: break-word;
             }
             .menu-item:hover { background-color: rgba(255, 255, 255, 0.2); }
             .menu-item.active {
                 background-color: #ffffff;
                 color: #0d6efd;
-                box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+                box-shadow: 0 2px 5px rgba(0,0,0,0.12);
             }
-            .arrow-icon { font-size: 10px; transition: transform 0.2s ease; margin-left: 4px; }
+            .arrow-icon { font-size: 9px; margin-left: 4px; flex-shrink: 0; }
             .menu-item.active .arrow-icon { transform: rotate(180deg); }
 
             .dropdown-panel {
@@ -535,9 +643,10 @@ with tab3:
                 border: 1px solid #cfe2ff;
                 border-top: 4px solid #0d6efd;
                 border-radius: 8px;
-                padding: 15px;
+                padding: 12px;
                 box-shadow: 0 4px 12px rgba(0,0,0,0.05);
                 display: none;
+                width: 100%;
             }
             .dropdown-panel.active { display: block; }
 
@@ -545,92 +654,68 @@ with tab3:
                 background: #f8f9fa;
                 border: 1px solid #dee2e6;
                 border-radius: 8px;
-                padding: 12px;
-                margin-bottom: 15px;
+                padding: 10px;
+                margin-bottom: 12px;
+                width: 100%;
             }
-            .input-group { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+            .input-group { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; width: 100%; }
             .input-group:last-child { margin-bottom: 0; }
             input[type="text"], select {
-                flex: 1;
-                min-width: 180px;
-                padding: 10px 12px;
+                flex: 1 1 200px;
+                width: 100%;
+                max-width: 100%;
+                padding: 9px 10px;
                 border: 1px solid #ced4da;
                 border-radius: 6px;
-                font-size: 14px;
-            }
-            .btn-blue {
-                padding: 10px 16px;
-                border: none;
-                border-radius: 6px;
-                background-color: #0d6efd;
-                color: white;
-                font-weight: bold;
-                cursor: pointer;
                 font-size: 13px;
             }
-            .btn-blue:hover { background-color: #0b5ed7; }
-            .btn-outline-blue {
-                padding: 8px 12px;
-                border: 1px solid #0d6efd;
+            .btn-blue, .btn-outline-blue, .btn-dark-blue, .btn-word {
+                padding: 9px 12px;
                 border-radius: 6px;
-                background-color: #ffffff;
-                color: #0d6efd;
                 font-weight: bold;
                 cursor: pointer;
-                font-size: 13px;
+                font-size: 12px;
+                flex-shrink: 0;
             }
-            .btn-dark-blue {
-                padding: 8px 12px;
-                border: none;
-                border-radius: 6px;
-                background-color: #084298;
-                color: #ffffff;
-                font-weight: bold;
-                cursor: pointer;
-                font-size: 13px;
-            }
-            .btn-word {
-                padding: 10px 18px;
-                border: none;
-                border-radius: 6px;
-                background-color: #198754;
-                color: #ffffff;
-                font-weight: bold;
-                cursor: pointer;
-                font-size: 13px;
-                box-shadow: 0 2px 5px rgba(25, 135, 84, 0.3);
-            }
-            .btn-word:hover { background-color: #157347; }
+            .btn-blue { border: none; background-color: #0d6efd; color: white; }
+            .btn-outline-blue { border: 1px solid #0d6efd; background-color: #ffffff; color: #0d6efd; }
+            .btn-dark-blue { border: none; background-color: #084298; color: #ffffff; }
+            .btn-word { border: none; background-color: #198754; color: #ffffff; }
 
-            /* Khung hiển thị Bài viết / Kịch bản có thanh trượt kéo qua lại, lên xuống */
+            /* Khung hiển thị bài viết tự co giãn vừa màn hình điện thoại (không ép min-width gây tràn) */
             .lecture-scroll-box {
                 width: 100%;
-                height: 430px;
-                overflow: auto;
+                max-width: 100%;
+                height: 440px;
+                overflow-y: auto;
+                overflow-x: hidden;
                 border: 1px solid #b6d4fe;
                 border-radius: 8px;
                 background-color: #ffffff;
-                padding: 18px;
+                padding: 14px;
                 box-shadow: inset 0 0 6px rgba(0,0,0,0.04);
                 font-family: 'Times New Roman', Times, serif;
             }
             .lecture-inner-content {
-                min-width: 680px; /* Đảm bảo có thanh trượt ngang trên màn hình hẹp để đọc rõ bảng/cột */
-                line-height: 1.65;
+                width: 100%;
+                max-width: 100%;
+                line-height: 1.6;
                 font-size: 15px;
+                word-wrap: break-word;
+                overflow-wrap: break-word;
             }
             .lecture-title {
-                font-size: 18px;
+                font-size: 16px;
                 font-weight: bold;
                 color: #084298;
                 border-bottom: 2px solid #0d6efd;
                 padding-bottom: 6px;
-                margin-bottom: 14px;
+                margin-bottom: 12px;
                 text-transform: uppercase;
             }
             .lecture-section {
-                margin-bottom: 16px;
-                padding: 12px;
+                margin-bottom: 14px;
+                padding: 10px;
                 background: #f8f9fa;
                 border-left: 4px solid #0d6efd;
                 border-radius: 4px;
@@ -638,107 +723,87 @@ with tab3:
             .sec-heading {
                 font-weight: bold;
                 color: #0d6efd;
-                font-size: 15px;
-                margin-bottom: 6px;
-            }
-            .sec-en {
-                color: #111111;
-                font-size: 15px;
-                margin-bottom: 6px;
-            }
-            .sec-vi {
-                color: #495057;
-                font-style: italic;
                 font-size: 14px;
-                border-top: 1px dashed #ced4da;
-                padding-top: 5px;
+                margin-bottom: 6px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-wrap: wrap;
+                gap: 6px;
             }
+            .sec-en { color: #111111; font-size: 14.5px; margin-bottom: 6px; }
+            .sec-vi { color: #495057; font-style: italic; font-size: 13.5px; border-top: 1px dashed #ced4da; padding-top: 5px; }
 
-            /* Bố cục Video Hội thoại */
-            .video-layout { display: flex; gap: 15px; flex-direction: row; }
+            /* Bố cục Video Hội thoại tự xếp dọc trên điện thoại */
+            .video-layout { display: flex; gap: 12px; flex-direction: row; width: 100%; }
             @media (max-width: 768px) { .video-layout { flex-direction: column; } }
-            .video-main { flex: 1.35; }
-            .video-sidebar { flex: 1; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 14px; }
+            .video-main { flex: 1.35; width: 100%; }
+            .video-sidebar { flex: 1; width: 100%; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; }
 
             .media-screen {
                 background: linear-gradient(135deg, #0a2540 0%, #0d6efd 100%);
                 color: white;
                 border-radius: 10px;
-                padding: 18px 14px;
-                box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+                padding: 14px 12px;
+                width: 100%;
             }
             .wave-header {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
                 border-bottom: 1px solid rgba(255,255,255,0.2);
-                padding-bottom: 10px;
-                margin-bottom: 12px;
+                padding-bottom: 8px;
+                margin-bottom: 10px;
                 flex-wrap: wrap;
-                gap: 6px;
+                gap: 4px;
             }
-            .wave-bars { display: flex; align-items: center; gap: 4px; height: 22px; }
+            .wave-bars { display: flex; align-items: center; gap: 4px; height: 20px; }
             .bar { width: 4px; height: 8px; background: #6ea8fe; border-radius: 2px; }
             .playing .bar { animation: soundWave 0.5s infinite alternate; }
-            .playing .bar:nth-child(2) { animation-delay: 0.1s; }
-            .playing .bar:nth-child(3) { animation-delay: 0.2s; }
-            .playing .bar:nth-child(4) { animation-delay: 0.3s; }
-            @keyframes soundWave {
-                from { height: 6px; background: #6ea8fe; }
-                to { height: 22px; background: #ffffff; }
-            }
+            @keyframes soundWave { from { height: 6px; } to { height: 20px; background: #fff; } }
 
             .dialogue-container {
                 background: rgba(0, 0, 0, 0.35);
                 border-radius: 8px;
-                padding: 12px;
+                padding: 10px;
                 display: flex;
                 flex-direction: column;
-                gap: 10px;
+                gap: 8px;
             }
             .turn-box {
                 background: rgba(255, 255, 255, 0.12);
                 border-left: 3px solid #6ea8fe;
-                padding: 10px 12px;
+                padding: 8px 10px;
                 border-radius: 6px;
                 text-align: left;
+                word-wrap: break-word;
             }
             .turn-box.role-b { background: rgba(255, 255, 255, 0.2); border-left: 3px solid #ffc107; }
-            .role-label {
-                font-size: 11px;
-                font-weight: bold;
-                text-transform: uppercase;
-                color: #9ec5fe;
-                margin-bottom: 3px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-            }
+            .role-label { font-size: 11px; font-weight: bold; color: #9ec5fe; margin-bottom: 3px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px; }
             .role-b .role-label { color: #ffe69c; }
-            .sub-en { font-size: 15px; font-weight: bold; color: #ffffff; line-height: 1.45; }
+            .sub-en { font-size: 14px; font-weight: bold; color: #ffffff; line-height: 1.45; }
             .sub-vi { font-size: 13px; color: #cfe2ff; margin-top: 4px; font-style: italic; }
             .sub-hidden { filter: blur(5px); user-select: none; opacity: 0.35; }
-            .controls-row { display: flex; gap: 6px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
+            .controls-row { display: flex; gap: 6px; justify-content: center; margin-top: 12px; flex-wrap: wrap; }
 
-            .vocab-card { background: #ffffff; border-left: 4px solid #0d6efd; border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
-            .grammar-card { background: #e7f1ff; border: 1px solid #b6d4fe; border-radius: 6px; padding: 12px; margin-top: 10px; }
-            .word-header { font-size: 20px; font-weight: bold; color: #0d6efd; margin-bottom: 4px; }
-            .phonetic { color: #6c757d; font-size: 14px; font-family: monospace; margin-bottom: 10px; }
-            .meaning-box { background: #f1f8ff; border-left: 4px solid #0d6efd; padding: 12px; border-radius: 6px; margin-bottom: 12px; }
-            .sample-sentence-box { background: #f8f9fa; border: 1px solid #dee2e6; padding: 14px; border-radius: 8px; font-size: 16px; font-weight: 500; margin-bottom: 14px; line-height: 1.5; }
-            .score-circle { display: inline-block; padding: 8px 16px; border-radius: 20px; font-weight: bold; font-size: 14px; margin-top: 10px; }
+            .vocab-card { background: #ffffff; border-left: 4px solid #0d6efd; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+            .grammar-card { background: #e7f1ff; border: 1px solid #b6d4fe; border-radius: 6px; padding: 10px; margin-top: 8px; word-wrap: break-word; }
+            .word-header { font-size: 18px; font-weight: bold; color: #0d6efd; margin-bottom: 4px; }
+            .phonetic { color: #6c757d; font-size: 13px; font-family: monospace; margin-bottom: 8px; }
+            .meaning-box { background: #f1f8ff; border-left: 4px solid #0d6efd; padding: 10px; border-radius: 6px; margin-bottom: 10px; }
+            .sample-sentence-box { background: #f8f9fa; border: 1px solid #dee2e6; padding: 12px; border-radius: 8px; font-size: 15px; font-weight: 500; margin-bottom: 12px; line-height: 1.5; word-wrap: break-word; }
+            .score-circle { display: inline-block; padding: 6px 14px; border-radius: 20px; font-weight: bold; font-size: 13px; margin-top: 8px; }
             .word-correct { color: #198754; font-weight: bold; }
             .word-wrong { color: #dc3545; text-decoration: line-through; }
-            .chat-window { height: 280px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 8px; padding: 12px; background: #fdfdfd; margin-bottom: 10px; }
-            .msg-user { background: #0d6efd; color: white; padding: 9px 12px; border-radius: 12px 12px 2px 12px; max-width: 85%; margin-left: auto; margin-bottom: 8px; font-size: 14px; }
-            .msg-ai { background: #e9ecef; color: #212529; padding: 9px 12px; border-radius: 12px 12px 12px 2px; max-width: 90%; margin-right: auto; margin-bottom: 8px; font-size: 14px; line-height: 1.45; }
+            .chat-window { height: 260px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px; background: #fdfdfd; margin-bottom: 10px; }
+            .msg-user { background: #0d6efd; color: white; padding: 8px 12px; border-radius: 12px 12px 2px 12px; max-width: 85%; margin-left: auto; margin-bottom: 8px; font-size: 13.5px; word-wrap: break-word; }
+            .msg-ai { background: #e9ecef; color: #212529; padding: 8px 12px; border-radius: 12px 12px 12px 2px; max-width: 90%; margin-right: auto; margin-bottom: 8px; font-size: 13.5px; line-height: 1.45; word-wrap: break-word; }
         </style>
     </head>
     <body>
-        <!-- THANH MENU XANH 5 MỤC CHỨC NĂNG -->
         <div class="blue-menu-bar">
             <button class="menu-item active" onclick="openPanel('lecture', this)">
-                <span>Bài viết & Kịch bản Giảng</span>
+                <span>Bài viết & Kịch bản</span>
                 <span class="arrow-icon">▼</span>
             </button>
             <button class="menu-item" onclick="openPanel('video', this)">
@@ -750,7 +815,7 @@ with tab3:
                 <span class="arrow-icon">▼</span>
             </button>
             <button class="menu-item" onclick="openPanel('speak', this)">
-                <span>Luyện Nói & Chấm điểm</span>
+                <span>Luyện Nói AI</span>
                 <span class="arrow-icon">▼</span>
             </button>
             <button class="menu-item" onclick="openPanel('chat', this)">
@@ -759,54 +824,50 @@ with tab3:
             </button>
         </div>
 
-        <!-- PANEL 1: BÀI VIẾT / KỊCH BẢN GIẢNG BÀI + TẢI FILE WORD -->
+        <!-- PANEL 1: BÀI VIẾT / KỊCH BẢN (PHÂN LOẠI ĐÚNG NGỮ CẢNH ĐỜI SỐNG & HỌC THUẬT) -->
         <div id="panel-lecture" class="dropdown-panel active">
             <div class="topic-control-box">
                 <div class="input-group">
                     <select id="preset-lecture-select" onchange="loadPresetLecture()">
-                        <option value="ttest1">Chủ đề mẫu 1: Bài giảng Kiểm định t-test 1 mẫu (One-Sample t-Test)</option>
-                        <option value="logistic">Chủ đề mẫu 2: Bài giảng Hồi quy Logistic Đa biến (Multivariate Logistic Regression)</option>
-                        <option value="rct">Chủ đề mẫu 3: Thiết kế Thử nghiệm Lâm sàng Ngẫu nhiên Có đối chứng (RCT)</option>
+                        <option value="ttest1">Mẫu 1 (Học thuật): Bài giảng Kiểm định t-test 1 mẫu (One-Sample t-Test)</option>
+                        <option value="metro">Mẫu 2 (Đời sống): Giao tiếp & Hướng dẫn tại Ga tàu điện ngầm (Metro Station)</option>
+                        <option value="logistic">Mẫu 3 (Học thuật): Bài giảng Hồi quy Logistic Đa biến</option>
                     </select>
                 </div>
                 <div class="input-group">
-                    <input type="text" id="custom-lecture-topic" placeholder="Hoặc nhập chủ đề bài giảng / bài viết bạn cần soạn (VD: bài giảng về t test 1 mẫu, phân tích phương sai ANOVA...)" onkeypress="if(event.key==='Enter') generateLectureScript()">
+                    <input type="text" id="custom-lecture-topic" placeholder="Nhập chủ đề bất kỳ (VD: Tại ga metro, bài giảng t-test 1 mẫu, đặt phòng khách sạn...)" onkeypress="if(event.key==='Enter') generateLectureScript()">
                     <button class="btn-blue" id="btn-gen-lecture" onclick="generateLectureScript()">Soạn bài viết / Kịch bản</button>
                 </div>
             </div>
 
-            <!-- Thanh công cụ điều khiển bài viết & Nút tải Word -->
-            <div style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center;">
+            <div style="display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; align-items: center;">
                 <button class="btn-word" onclick="downloadLectureWord()">Tải về file Word (.doc)</button>
                 <button class="btn-blue" onclick="playFullLecture(1.0)">Nghe kịch bản (1.0x)</button>
                 <button class="btn-dark-blue" onclick="playFullLecture(0.65)">Nghe chậm (0.65x)</button>
                 <button class="btn-blue" style="background-color: #dc3545;" onclick="stopClip()">Dừng đọc</button>
-                <button class="btn-outline-blue" id="btn-toggle-lec-vi" onclick="toggleLectureVi()">Ẩn bản dịch tiếng Việt</button>
+                <button class="btn-outline-blue" id="btn-toggle-lec-vi" onclick="toggleLectureVi()">Ẩn tiếng Việt</button>
             </div>
 
-            <!-- Khung hiển thị bài viết dài có thanh cuộn lên xuống và kéo qua lại -->
-            <div class="lecture-scroll-box" id="lecture-display-area">
-                <!-- Nội dung kịch bản bài giảng sẽ render tại đây -->
-            </div>
+            <div class="lecture-scroll-box" id="lecture-display-area"></div>
         </div>
 
-        <!-- PANEL 2: XEM VIDEO / NGHE HỘI THOẠI NHẬP VAI THỰC TẾ -->
+        <!-- PANEL 2: VIDEO & HỘI THOẠI NHẬP VAI -->
         <div id="panel-video" class="dropdown-panel">
             <div class="topic-control-box">
                 <div class="input-group">
                     <select id="video-topic-select" onchange="changeVideoLesson()">
-                        <option value="immigration">Chủ đề 1: Thủ tục Nhập cảnh & Hải quan Sân bay</option>
-                        <option value="biostat">Chủ đề 2: Thống kê Y sinh & Nghiên cứu Lâm sàng</option>
-                        <option value="pharma">Chủ đề 3: Dược lâm sàng & Tư vấn Thuốc</option>
-                        <option value="conference">Chủ đề 4: Báo cáo tại Hội nghị Khoa học Quốc tế</option>
-                        <option value="hotel">Chủ đề 5: Nhận phòng Khách sạn & Lưu trú Công tác</option>
+                        <option value="metro_conv">Chủ đề 1: Mua vé & Hỏi đường tại Ga tàu điện ngầm (Metro)</option>
+                        <option value="immigration">Chủ đề 2: Thủ tục Nhập cảnh & Hải quan Sân bay</option>
+                        <option value="biostat">Chủ đề 3: Thống kê Y sinh & Nghiên cứu Lâm sàng</option>
+                        <option value="pharma">Chủ đề 4: Dược lâm sàng & Tư vấn Thuốc</option>
+                        <option value="conference">Chủ đề 5: Báo cáo tại Hội nghị Khoa học Quốc tế</option>
                     </select>
-                    <button class="btn-outline-blue" onclick="nextClipInTopic()">Đổi tình huống khác</button>
+                    <button class="btn-outline-blue" onclick="nextClipInTopic()">Đổi tình huống</button>
                 </div>
 
                 <div class="input-group">
-                    <input type="text" id="custom-topic-input" placeholder="Tự nhập tình huống hội thoại (VD: khai báo hải quan, khám bệnh, phỏng vấn...)" onkeypress="if(event.key==='Enter') generateCustomDialogue()">
-                    <button class="btn-blue" id="btn-gen-topic" onclick="generateCustomDialogue()">Tạo hội thoại thực tế</button>
+                    <input type="text" id="custom-topic-input" placeholder="Tự nhập tình huống hội thoại (VD: tại ga metro, khai báo hải quan...)" onkeypress="if(event.key==='Enter') generateCustomDialogue()">
+                    <button class="btn-blue" id="btn-gen-topic" onclick="generateCustomDialogue()">Tạo hội thoại</button>
                 </div>
             </div>
 
@@ -814,32 +875,32 @@ with tab3:
                 <div class="video-main">
                     <div class="media-screen" id="media-player-box">
                         <div class="wave-header">
-                            <span style="font-size: 12px; font-weight: bold; color: #9ec5fe;" id="clip-badge">TÌNH HUỐNG HỘI THOẠI 01</span>
+                            <span style="font-size: 11px; font-weight: bold; color: #9ec5fe;" id="clip-badge">TÌNH HUỐNG 01</span>
                             <div class="wave-bars" id="wave-indicator">
                                 <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
                             </div>
-                            <span style="font-size: 12px; color: #e2e3e5;" id="player-status">Sẵn sàng phát</span>
+                            <span style="font-size: 11px; color: #e2e3e5;" id="player-status">Sẵn sàng</span>
                         </div>
 
                         <div class="dialogue-container" id="subtitle-container"></div>
 
                         <div class="controls-row">
-                            <button class="btn-blue" style="background-color: #198754;" onclick="playFullDialogue(1.0)">Nghe hội thoại (1.0x)</button>
+                            <button class="btn-blue" style="background-color: #198754;" onclick="playFullDialogue(1.0)">Nghe (1.0x)</button>
                             <button class="btn-dark-blue" onclick="playFullDialogue(0.65)">Nghe chậm (0.65x)</button>
-                            <button class="btn-blue" style="background-color: #dc3545;" onclick="stopClip()">Dừng phát</button>
+                            <button class="btn-blue" style="background-color: #dc3545;" onclick="stopClip()">Dừng</button>
                             <button class="btn-outline-blue" id="btn-toggle-sub" onclick="toggleSubtitle()">Ẩn phụ đề</button>
                         </div>
                     </div>
                 </div>
 
                 <div class="video-sidebar">
-                    <div style="font-weight: bold; color: #0d6efd; font-size: 15px; margin-bottom: 10px; border-bottom: 1px solid #dee2e6; padding-bottom: 6px;">
-                        Từ vựng trọng tâm trong tình huống
+                    <div style="font-weight: bold; color: #0d6efd; font-size: 14px; margin-bottom: 8px; border-bottom: 1px solid #dee2e6; padding-bottom: 5px;">
+                        Từ vựng trọng tâm
                     </div>
                     <div id="related-vocab-list"></div>
 
-                    <div style="font-weight: bold; color: #084298; font-size: 15px; margin-top: 16px; margin-bottom: 8px; border-bottom: 1px solid #dee2e6; padding-bottom: 6px;">
-                        Cấu trúc Ngữ pháp & Mẫu câu giao tiếp
+                    <div style="font-weight: bold; color: #084298; font-size: 14px; margin-top: 14px; margin-bottom: 6px; border-bottom: 1px solid #dee2e6; padding-bottom: 5px;">
+                        Ngữ pháp & Mẫu câu
                     </div>
                     <div id="related-grammar-box"></div>
                 </div>
@@ -849,46 +910,46 @@ with tab3:
         <!-- PANEL 3: TỪ ĐIỂN AI & PHÁT ÂM -->
         <div id="panel-dict" class="dropdown-panel">
             <div class="input-group">
-                <input type="text" id="dict-input" placeholder="Nhập từ vựng tiếng Anh (VD: hypothesis, degrees of freedom, null)..." onkeypress="if(event.key==='Enter') lookupWord()">
+                <input type="text" id="dict-input" placeholder="Nhập từ vựng tiếng Anh (VD: platform, transfer, hypothesis)..." onkeypress="if(event.key==='Enter') lookupWord()">
                 <button class="btn-blue" onclick="lookupWord()">Tra cứu</button>
             </div>
             <div id="dict-result">
-                <p style="color: #6c757d; font-style: italic;">Nhập một từ tiếng Anh bất kỳ để xem nghĩa tiếng Việt, phiên âm quốc tế (IPA), ví dụ ngữ cảnh và nghe giọng đọc chuẩn.</p>
+                <p style="color: #6c757d; font-style: italic; font-size: 13px;">Nhập một từ tiếng Anh để xem nghĩa tiếng Việt, phiên âm IPA, ví dụ và nghe giọng đọc chuẩn.</p>
             </div>
         </div>
 
-        <!-- PANEL 4: LUYỆN NÓI & CHẤM ĐIỂM PHÁT ÂM -->
+        <!-- PANEL 4: LUYỆN NÓI & CHẤM ĐIỂM -->
         <div id="panel-speak" class="dropdown-panel">
             <div class="input-group">
                 <select id="topic-select" onchange="loadNextSentence()">
-                    <option value="immigration">Chủ đề: Nhập cảnh & Hải quan Sân bay</option>
-                    <option value="medical">Chủ đề: Y khoa & Nghiên cứu Khoa học</option>
-                    <option value="academic">Chủ đề: Hội thảo & Thuyết trình Quốc tế</option>
+                    <option value="metro">Chủ đề: Tại Ga Metro & Giao thông</option>
+                    <option value="immigration">Chủ đề: Nhập cảnh & Hải quan</option>
+                    <option value="medical">Chủ đề: Y khoa & Thống kê</option>
                 </select>
-                <button class="btn-outline-blue" onclick="loadNextSentence()">Đổi câu mẫu khác</button>
+                <button class="btn-outline-blue" onclick="loadNextSentence()">Đổi câu mẫu</button>
             </div>
             <div class="sample-sentence-box">
-                <div style="font-size: 12px; color: #0d6efd; font-weight: bold; margin-bottom: 4px;">CÂU MẪU LUYỆN ĐỌC:</div>
-                <span id="target-sentence">The one-sample t-test compares the mean of a single sample to a known population mean.</span>
-                <div style="margin-top: 10px;">
-                    <button class="btn-blue" onclick="speakText(document.getElementById('target-sentence').innerText, 0.95)">Nghe mẫu chuẩn</button>
+                <div style="font-size: 11px; color: #0d6efd; font-weight: bold; margin-bottom: 4px;">CÂU MẪU LUYỆN ĐỌC:</div>
+                <span id="target-sentence">Excuse me, which metro line goes to the city center, and where can I buy a ticket?</span>
+                <div style="margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap;">
+                    <button class="btn-blue" onclick="speakText(document.getElementById('target-sentence').innerText, 0.95)">Nghe chuẩn</button>
                     <button class="btn-outline-blue" onclick="speakText(document.getElementById('target-sentence').innerText, 0.65)">Nghe chậm</button>
                 </div>
-                <div id="target-vi" style="font-size: 14px; color: #555; margin-top: 8px; font-weight: normal; font-style: italic;">
-                    (Kiểm định t một mẫu so sánh giá trị trung bình của một mẫu đơn lẻ với giá trị trung bình quần thể đã biết.)
+                <div id="target-vi" style="font-size: 13px; color: #555; margin-top: 6px; font-style: italic;">
+                    (Xin lỗi, tuyến metro nào đi đến trung tâm thành phố và tôi có thể mua vé ở đâu?)
                 </div>
             </div>
-            <button id="btn-record-eval" class="btn-blue" style="width: 100%; padding: 13px; font-size: 14px;" onclick="startPronunciationCheck()">
+            <button id="btn-record-eval" class="btn-blue" style="width: 100%; padding: 12px; font-size: 13px;" onclick="startPronunciationCheck()">
                 BẤM ĐỂ ĐỌC CÂU TRÊN VÀ CHẤM ĐIỂM AI
             </button>
-            <div id="speak-feedback" style="margin-top: 15px;"></div>
+            <div id="speak-feedback" style="margin-top: 12px;"></div>
         </div>
 
-        <!-- PANEL 5: GIA SƯ HỘI THOẠI SONG NGỮ -->
+        <!-- PANEL 5: GIA SƯ SONG NGỮ -->
         <div id="panel-chat" class="dropdown-panel">
             <div class="chat-window" id="chat-box">
                 <div class="msg-ai">
-                    <b>AI English Tutor:</b> Xin chào! Hãy nhập câu tiếng Việt bạn muốn diễn đạt trong bài giảng/hội nghị, hoặc nhập câu tiếng Anh để tôi kiểm tra và chỉnh sửa tự nhiên hơn.
+                    <b>AI English Tutor:</b> Xin chào! Hãy nhập câu tiếng Việt bạn muốn nói hoặc câu tiếng Anh cần chỉnh sửa tự nhiên hơn.
                 </div>
             </div>
             <div class="input-group">
@@ -898,6 +959,8 @@ with tab3:
         </div>
 
         <script>
+            const UPLOADED_DOC_DATA = __UPLOADED_DOC_JSON__;
+
             function openPanel(panelId, btn) {
                 document.querySelectorAll('.dropdown-panel').forEach(el => el.classList.remove('active'));
                 document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
@@ -907,7 +970,7 @@ with tab3:
             }
 
             // =========================================================================
-            // PHẦN 1: DỮ LIỆU & LOGIC BÀI VIẾT / KỊCH BẢN GIẢNG BÀI + XUẤT WORD
+            // PHẦN 1: DỮ LIỆU & LOGIC BÀI VIẾT / KỊCH BẢN (ĐÚNG NGỮ CẢNH THỰC TẾ)
             // =========================================================================
             const LECTURE_BANK = {
                 ttest1: {
@@ -915,31 +978,52 @@ with tab3:
                     sections: [
                         {
                             heading: "1. Opening & Purpose (Mở đầu & Mục đích kiểm định)",
-                            en: "Good morning everyone. Today, we will explore the One-Sample t-Test, one of the most fundamental parametric hypothesis tests in biostatistics. Simply put, we use a one-sample t-test when we want to determine whether the mean of a single sample differs significantly from a known or hypothesized population mean (denoted as mu-zero).",
-                            vi: "Chào buổi sáng tất cả các bạn. Hôm nay, chúng ta sẽ tìm hiểu về Kiểm định t một mẫu (One-Sample t-Test), một trong những kiểm định giả thuyết tham số cơ bản nhất trong thống kê y sinh. Nói một cách đơn giản, chúng ta sử dụng kiểm định t một mẫu khi muốn xác định liệu giá trị trung bình của một mẫu đơn lẻ có khác biệt có ý nghĩa thống kê so với giá trị trung bình quần thể đã biết hoặc giả định (ký hiệu là mu-0) hay không."
+                            en: "Good morning everyone. Today, we will explore the One-Sample t-Test, one of the most fundamental parametric hypothesis tests in biostatistics. We use a one-sample t-test when we want to determine whether the mean of a single sample differs significantly from a known or hypothesized population mean (mu-zero).",
+                            vi: "Chào buổi sáng tất cả các bạn. Hôm nay, chúng ta sẽ tìm hiểu về Kiểm định t một mẫu (One-Sample t-Test), một trong những kiểm định giả thuyết tham số cơ bản nhất trong thống kê y sinh. Chúng ta sử dụng kiểm định này khi muốn xác định liệu trung bình của một mẫu đơn lẻ có khác biệt có ý nghĩa thống kê so với trung bình quần thể giả định (mu-0) hay không."
                         },
                         {
-                            heading: "2. Key Assumptions (Các giả định cốt lõi cần kiểm tra)",
-                            en: "Before running this test in SPSS or Stata, we must verify three critical assumptions: First, the dependent variable must be continuous (measured on an interval or ratio scale). Second, the observations must be independent of one another. Third, the data should follow an approximately normal distribution, especially when the sample size is small (n < 30).",
-                            vi: "Trước khi chạy kiểm định này trên SPSS hoặc Stata, chúng ta phải kiểm tra ba giả định quan trọng: Thứ nhất, biến phụ thuộc phải là biến liên tục (đo lường trên thang đo khoảng hoặc tỷ lệ). Thứ hai, các quan sát phải độc lập với nhau. Thứ ba, dữ liệu cần tuân theo phân phối xấp xỉ chuẩn, đặc biệt là khi cỡ mẫu nhỏ (n < 30)."
+                            heading: "2. Key Assumptions (Các giả định cốt lõi)",
+                            en: "Before running this test, we must verify three critical assumptions: First, the dependent variable must be continuous. Second, the observations must be independent. Third, the data should follow an approximately normal distribution, especially when the sample size is small (n < 30).",
+                            vi: "Trước khi chạy kiểm định này, chúng ta phải kiểm tra ba giả định quan trọng: Thứ nhất, biến phụ thuộc phải là biến liên tục. Thứ hai, các quan sát phải độc lập. Thứ ba, dữ liệu cần tuân theo phân phối xấp xỉ chuẩn, đặc biệt khi cỡ mẫu nhỏ (n < 30)."
                         },
                         {
-                            heading: "3. Hypotheses & Formula (Cặp giả thuyết & Công thức tính toán)",
-                            en: "In hypothesis testing, we set up two competing statements. The null hypothesis (H0) states that the sample mean is equal to the hypothesized population mean. The alternative hypothesis (H1) states that there is a significant difference. The test statistic t is calculated as: t = (x-bar minus mu-zero) divided by (s divided by the square root of n), with n minus 1 degrees of freedom.",
-                            vi: "Trong kiểm định giả thuyết, chúng ta thiết lập hai phát biểu đối lập. Giả thuyết không (H0) phát biểu rằng trung bình mẫu bằng với trung bình quần thể giả định. Giả thuyết đối (H1) phát biểu rằng có sự khác biệt có ý nghĩa. Trị số thống kê t được tính bằng công thức: t = (x trung bình trừ mu-0) chia cho (độ lệch chuẩn s chia căn bậc hai của n), với bậc tự do là n trừ 1."
-                        },
-                        {
-                            heading: "4. Clinical Example & Interpretation (Ví dụ lâm sàng & Diễn giải kết quả)",
-                            en: "For example, suppose the normal fasting blood glucose level in healthy adults is 90 mg/dL. We measure glucose levels in a sample of 25 patients taking a new medication and find a sample mean of 96 mg/dL. If our calculated p-value is less than the significance level alpha of 0.05, we reject the null hypothesis and conclude that the patients' average blood glucose differs significantly from the standard norm.",
-                            vi: "Ví dụ, giả sử mức đường huyết lúc đói bình thường ở người trưởng thành khỏe mạnh là 90 mg/dL. Chúng ta đo đường huyết trên một mẫu gồm 25 bệnh nhân đang dùng một loại thuốc mới và thu được trung bình mẫu là 96 mg/dL. Nếu trị số p tính được nhỏ hơn mức ý nghĩa alpha là 0.05, chúng ta bác bỏ giả thuyết không và kết luận rằng mức đường huyết trung bình của nhóm bệnh nhân này khác biệt có ý nghĩa thống kê so với chuẩn bình thường."
+                            heading: "3. Hypotheses & Interpretation (Giả thuyết & Diễn giải kết quả)",
+                            en: "The null hypothesis (H0) states that the sample mean equals the population mean, while the alternative hypothesis (H1) states that there is a significant difference. If our calculated p-value is less than 0.05, we reject H0 and conclude a statistically significant difference.",
+                            vi: "Giả thuyết không (H0) phát biểu rằng trung bình mẫu bằng trung bình quần thể, trong khi giả thuyết đối (H1) cho rằng có sự khác biệt có ý nghĩa. Nếu trị số p tính được nhỏ hơn 0.05, chúng ta bác bỏ H0 và kết luận có sự khác biệt có ý nghĩa thống kê."
                         }
                     ],
                     vocab: [
                         { word: "One-Sample t-Test", mean: "Kiểm định t một mẫu" },
                         { word: "Hypothesized population mean", mean: "Giá trị trung bình quần thể giả định" },
                         { word: "Null hypothesis (H0)", mean: "Giả thuyết không" },
-                        { word: "Degrees of freedom (df)", mean: "Bậc tự do" },
-                        { word: "Significance level (alpha)", mean: "Mức ý nghĩa thống kê" }
+                        { word: "Degrees of freedom (df)", mean: "Bậc tự do" }
+                    ]
+                },
+                metro: {
+                    title: "PRACTICAL GUIDE & DIALOGUE: AT THE METRO STATION (GIAO TIẾP TẠI GA TÀU ĐIỆN NGẦM)",
+                    sections: [
+                        {
+                            heading: "1. Buying Tickets & Checking the Route Map (Mua vé & Xem bản đồ tuyến)",
+                            en: "When arriving at a metro station, passengers first check the transit map to identify the correct line and final destination. You can purchase a single-journey ticket or a rechargeable smart card at the automatic ticket vending machines or the customer service counter.",
+                            vi: "Khi đến ga tàu điện ngầm, hành khách trước tiên cần xem bản đồ tuyến để xác định đúng tuyến tàu và ga đích cuối cùng. Bạn có thể mua vé lượt hoặc thẻ thông minh nạp tiền tại các máy bán vé tự động hoặc quầy dịch vụ khách hàng."
+                        },
+                        {
+                            heading: "2. Passing Ticket Gates & Finding the Platform (Qua cổng soát vé & Tìm sân ga)",
+                            en: "After getting your ticket, tap your card on the sensor at the automatic fare gate to enter the paid area. Follow the overhead directional signs indicating the platform number and the direction of travel, then stand behind the yellow safety line while waiting for the train.",
+                            vi: "Sau khi có vé, hãy chạm thẻ vào đầu đọc cảm biến tại cổng soát vé tự động để vào khu vực sân ga. Đi theo các biển chỉ dẫn treo phía trên ghi số sân ga và hướng di chuyển của tàu, sau đó đứng sau vạch an toàn màu vàng trong khi chờ tàu đến."
+                        },
+                        {
+                            heading: "3. Transferring Lines & Exiting (Chuyển tuyến & Ra khỏi ga)",
+                            en: "If your destination is on another line, get off at an interchange station and follow the colored transfer signs without exiting the fare gates. Upon reaching your final stop, tap your card again at the exit gate and follow the exit signs to street level.",
+                            vi: "Nếu điểm đến của bạn nằm trên một tuyến khác, hãy xuống tại ga trung chuyển và đi theo biển báo chuyển tuyến có màu tương ứng mà không cần ra khỏi cổng soát vé. Khi đến ga cuối cùng, chạm thẻ một lần nữa tại cổng ra và đi theo biển Exit để lên mặt đất."
+                        }
+                    ],
+                    vocab: [
+                        { word: "Ticket vending machine", mean: "Máy bán vé tự động" },
+                        { word: "Automatic fare gate", mean: "Cổng soát vé tự động" },
+                        { word: "Platform", mean: "Sân ga / Ke ga" },
+                        { word: "Interchange station", mean: "Ga trung chuyển (đổi tuyến)" },
+                        { word: "Single-journey ticket", mean: "Vé đi một lượt" }
                     ]
                 },
                 logistic: {
@@ -947,45 +1031,24 @@ with tab3:
                     sections: [
                         {
                             heading: "1. Introduction & When to Use (Mở đầu & Khi nào sử dụng)",
-                            en: "Welcome to today's lecture on Multivariate Logistic Regression. Unlike linear regression, which predicts a continuous outcome, binary logistic regression is used when our dependent variable is dichotomous—meaning it has only two possible outcomes, such as cured versus not cured, or disease present versus absent.",
-                            vi: "Chào mừng các bạn đến với bài giảng hôm nay về Hồi quy Logistic Đa biến. Không giống như hồi quy tuyến tính vốn dự báo một kết cục liên tục, hồi quy logistic nhị phân được sử dụng khi biến phụ thuộc của chúng ta là biến nhị giá—nghĩa là chỉ có hai kết cục có thể xảy ra, chẳng hạn như khỏi bệnh so với không khỏi bệnh, hoặc có bệnh so với không bệnh."
+                            en: "Binary logistic regression is used when our dependent variable is dichotomous—meaning it has only two possible outcomes, such as cured versus not cured, or disease present versus absent.",
+                            vi: "Hồi quy logistic nhị phân được sử dụng khi biến phụ thuộc của chúng ta là biến nhị giá—nghĩa là chỉ có hai kết cục có thể xảy ra, chẳng hạn như khỏi bệnh so với không khỏi bệnh, hoặc có bệnh so với không bệnh."
                         },
                         {
-                            heading: "2. Controlling Confounders & Odds Ratio (Kiểm soát yếu tố gây nhiễu & Tỷ số chênh OR)",
-                            en: "The primary advantage of a multivariate model is its ability to adjust for multiple confounding variables simultaneously. Instead of regression coefficients, we interpret the Adjusted Odds Ratio (aOR) along with its 95% confidence interval. An aOR greater than 1 indicates an increased risk, whereas an aOR less than 1 suggests a protective factor.",
-                            vi: "Ưu điểm chính của mô hình đa biến là khả năng hiệu chỉnh đồng thời cho nhiều biến gây nhiễu. Thay vì các hệ số hồi quy thông thường, chúng ta diễn giải Tỷ số chênh hiệu chỉnh (aOR) cùng với khoảng tin cậy 95% của nó. Giá trị aOR lớn hơn 1 cho thấy nguy cơ tăng lên, trong khi aOR nhỏ hơn 1 gợi ý một yếu tố bảo vệ."
+                            heading: "2. Adjusted Odds Ratio (Tỷ số chênh hiệu chỉnh aOR)",
+                            en: "The primary advantage of a multivariate model is its ability to adjust for multiple confounding variables simultaneously. We interpret the Adjusted Odds Ratio (aOR) along with its 95% confidence interval.",
+                            vi: "Ưu điểm chính của mô hình đa biến là khả năng hiệu chỉnh đồng thời cho nhiều biến gây nhiễu. Chúng ta diễn giải Tỷ số chênh hiệu chỉnh (aOR) cùng với khoảng tin cậy 95% của nó."
                         }
                     ],
                     vocab: [
                         { word: "Dichotomous outcome", mean: "Kết cục nhị giá (2 giá trị)" },
                         { word: "Adjusted Odds Ratio (aOR)", mean: "Tỷ số chênh đã hiệu chỉnh" },
-                        { word: "Confounding variable", mean: "Biến gây nhiễu" },
-                        { word: "Confidence interval (CI)", mean: "Khoảng tin cậy" }
-                    ]
-                },
-                rct: {
-                    title: "LECTURE SCRIPT: RANDOMIZED CONTROLLED TRIALS (THIẾT KẾ THỬ NGHIỆM LÂM SÀNG RCT)",
-                    sections: [
-                        {
-                            heading: "1. Core Principles of RCT (Nguyên lý cốt lõi của RCT)",
-                            en: "Randomized Controlled Trials, or RCTs, represent the highest level of primary clinical evidence. By randomly assigning participants into either an intervention group or a control group, randomization balances both known and unknown prognostic factors across groups at baseline.",
-                            vi: "Thử nghiệm lâm sàng ngẫu nhiên có đối chứng, gọi tắt là RCT, đại diện cho mức độ bằng chứng lâm sàng nguyên phát cao nhất. Bằng cách phân bổ ngẫu nhiên người tham gia vào nhóm can thiệp hoặc nhóm chứng, việc ngẫu nhiên hóa giúp cân bằng cả các yếu tố tiên lượng đã biết và chưa biết giữa các nhóm tại thời điểm ban đầu."
-                        },
-                        {
-                            heading: "2. Blinding & Intention-to-Treat (Làm mù & Phân tích theo ý định điều trị)",
-                            en: "To minimize information bias, double-blinding is implemented so that neither the patients nor the clinicians know which treatment is being administered. Furthermore, data should be analyzed according to the Intention-to-Treat (ITT) principle to preserve the benefits of randomization.",
-                            vi: "Để giảm thiểu sai số thông tin, kỹ thuật làm mù đôi được áp dụng để cả bệnh nhân lẫn bác sĩ lâm sàng đều không biết phương pháp điều trị nào đang được sử dụng. Hơn nữa, dữ liệu nên được phân tích theo nguyên tắc Ý định điều trị (ITT) nhằm bảo toàn lợi ích của việc phân bổ ngẫu nhiên."
-                        }
-                    ],
-                    vocab: [
-                        { word: "Randomization", mean: "Sự phân bổ ngẫu nhiên" },
-                        { word: "Double-blinding", mean: "Làm mù đôi" },
-                        { word: "Intention-to-Treat (ITT)", mean: "Phân tích theo ý định điều trị" }
+                        { word: "Confounding variable", mean: "Biến gây nhiễu" }
                     ]
                 }
             };
 
-            let currentLectureObj = LECTURE_BANK["ttest1"];
+            let currentLectureObj = UPLOADED_DOC_DATA ? UPLOADED_DOC_DATA : LECTURE_BANK["ttest1"];
             let isLectureViVisible = true;
 
             function renderLecture(lecObj) {
@@ -996,10 +1059,10 @@ with tab3:
                 let html = `<div class="lecture-inner-content">
                     <div class="lecture-title">${lecObj.title}</div>`;
 
-                lecObj.sections.forEach((sec, idx) => {
+                lecObj.sections.forEach((sec) => {
                     html += `
                         <div class="lecture-section">
-                            <div class="sec-heading" style="display:flex; justify-content:space-between; align-items:center;">
+                            <div class="sec-heading">
                                 <span>${sec.heading}</span>
                                 <button class="btn-outline-blue" style="padding:2px 8px; font-size:11px;" onclick="speakText('${sec.en.replace(/'/g, "\\'")}', 0.95)">Nghe phần này</button>
                             </div>
@@ -1010,9 +1073,9 @@ with tab3:
                 });
 
                 if (lecObj.vocab && lecObj.vocab.length > 0) {
-                    html += `<div style="margin-top:14px; padding:12px; background:#e7f1ff; border-radius:6px;">
-                        <b style="color:#084298;">Thuật ngữ chuyên ngành trong bài giảng:</b>
-                        <ul style="margin:6px 0 0 18px; padding:0;">`;
+                    html += `<div style="margin-top:12px; padding:10px; background:#e7f1ff; border-radius:6px;">
+                        <b style="color:#084298; font-size:14px;">Từ vựng & Thuật ngữ trọng tâm:</b>
+                        <ul style="margin:6px 0 0 18px; padding:0; font-size:13.5px;">`;
                     lecObj.vocab.forEach(v => {
                         html += `<li style="margin-bottom:4px;"><b>${v.word}:</b> ${v.mean}</li>`;
                     });
@@ -1029,20 +1092,26 @@ with tab3:
                 renderLecture(LECTURE_BANK[key]);
             }
 
+            // PHÂN LOẠI NGỮ CẢNH THÔNG MINH: ĐỜI SỐNG / DU LỊCH vs HỌC THUẬT / NGHIÊN CỨU
             async function generateLectureScript() {
                 let rawTopic = document.getElementById('custom-lecture-topic').value.trim();
                 if (!rawTopic) {
-                    alert("Vui lòng nhập chủ đề bài giảng hoặc bài viết bạn muốn tạo!");
+                    alert("Vui lòng nhập chủ đề bài viết hoặc bài giảng bạn muốn tạo!");
                     return;
                 }
                 stopClip();
                 let btn = document.getElementById('btn-gen-lecture');
-                btn.innerText = "Đang biên soạn kịch bản...";
+                btn.innerText = "Đang soạn...";
                 btn.disabled = true;
 
                 try {
                     let lower = rawTopic.toLowerCase();
-                    // Nếu người dùng nhập liên quan đến t-test 1 mẫu -> Nạp ngay kịch bản chuẩn mực
+
+                    // 1. Kiểm tra các mẫu chuyên biệt có sẵn
+                    if (lower.includes("metro") || lower.includes("tàu điện") || lower.includes("nhà ga")) {
+                        renderLecture(LECTURE_BANK["metro"]);
+                        return;
+                    }
                     if ((lower.includes("t test") || lower.includes("t-test")) && (lower.includes("1") || lower.includes("một") || lower.includes("one"))) {
                         renderLecture(LECTURE_BANK["ttest1"]);
                         return;
@@ -1052,30 +1121,49 @@ with tab3:
                         return;
                     }
 
-                    // Tạo kịch bản giảng bài cho bất kỳ chủ đề nào người dùng nhập
+                    // Dịch chủ đề sang tiếng Anh
                     let enTopic = rawTopic;
                     if (/[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(rawTopic)) {
                         enTopic = await translateText(rawTopic, 'vi', 'en');
                     }
 
-                    let rawSections = [
-                        {
-                            heading: "1. Introduction & Overview (Mở đầu & Tổng quan chủ đề)",
-                            en: `Good morning colleagues and students. In today's session, we will examine ${enTopic}. Understanding the theoretical foundation and practical application of ${enTopic} is essential for rigorous academic research and evidence-based decision-making.`
-                        },
-                        {
-                            heading: "2. Core Principles & Methodology (Nguyên lý cốt lõi & Phương pháp luận)",
-                            en: `When applying ${enTopic}, we must carefully define our study objectives, verify all underlying assumptions, and select the most appropriate analytical framework. Paying close attention to methodological rigor ensures that our findings are both reliable and reproducible.`
-                        },
-                        {
-                            heading: "3. Practical Application & Interpretation (Ứng dụng thực tế & Diễn giải kết quả)",
-                            en: `Let us consider a practical scenario involving ${enTopic}. When interpreting the results, researchers should not rely solely on statistical significance, but also evaluate the clinical or practical relevance of the observed effects.`
-                        },
-                        {
-                            heading: "4. Summary & Q&A Transition (Tổng kết & Chuyển sang thảo luận)",
-                            en: `To summarize, ${enTopic} provides a structured approach to solving complex research questions. Thank you for your attention, and I now welcome any questions or comments from the audience.`
-                        }
-                    ];
+                    // 2. Phân loại xem chủ đề thuộc nhóm ĐỜI SỐNG/GIAO TIẾP hay HỌC THUẬT/NGHIÊN CỨU
+                    const academicKeywords = ["nghiên cứu", "thống kê", "kiểm định", "hồi quy", "lâm sàng", "y học", "dược", "luận án", "luận văn", "khoa học", "phân tích", "bài giảng", "test", "regression", "clinical", "study", "analysis", "lecture", "research", "method"];
+                    let isAcademic = academicKeywords.some(kw => lower.includes(kw));
+
+                    let rawSections = [];
+                    if (isAcademic) {
+                        rawSections = [
+                            {
+                                heading: "1. Introduction & Lecture Objectives (Mở đầu & Mục tiêu bài giảng)",
+                                en: `Good morning colleagues and students. In today's lecture, we will examine ${enTopic}. Understanding the theoretical principles and practical applications of ${enTopic} is essential for rigorous research and evidence-based decision-making.`
+                            },
+                            {
+                                heading: "2. Core Methodology & Assumptions (Phương pháp luận & Giả định cốt lõi)",
+                                en: `When applying ${enTopic}, researchers must carefully define study variables, verify underlying statistical assumptions, and ensure data accuracy so that the analytical findings are valid and reproducible.`
+                            },
+                            {
+                                heading: "3. Practical Interpretation & Conclusion (Diễn giải kết quả & Kết luận)",
+                                en: `In summary, ${enTopic} provides a systematic framework for analyzing data. Remember to evaluate both statistical significance and practical relevance when reporting your results.`
+                            }
+                        ];
+                    } else {
+                        // Văn phong Giao tiếp Đời sống / Tình huống Thực tế (Không lôi nghiên cứu lý thuyết vào!)
+                        rawSections = [
+                            {
+                                heading: "1. Common Situation & Useful Expressions (Tình huống thực tế & Mẫu câu thông dụng)",
+                                en: `When you are ${enTopic}, knowing clear and polite English expressions makes communication smooth and stress-free. Start by greeting the staff or people around you politely and stating what you need clearly, such as: "Excuse me, could you help me with..." or "Where can I find..."`
+                            },
+                            {
+                                heading: "2. Key Steps & Practical Interaction (Các bước giao tiếp & Xử lý tình huống)",
+                                en: `While ${enTopic}, pay close attention to signs, announcements, and instructions from the staff. If someone speaks too quickly, do not hesitate to say: "Could you please speak a little slower?" or "Could you repeat that, please?" to make sure you understand every detail accurately.`
+                            },
+                            {
+                                heading: "3. Polite Closing & Cultural Tips (Kết thúc lịch sự & Lưu ý giao tiếp)",
+                                en: `Once your request is completed ${enTopic}, always remember to thank the person who assisted you with a warm "Thank you very much for your help" or "I really appreciate it." Practicing these everyday phrases will help you feel confident anywhere.`
+                            }
+                        ];
+                    }
 
                     let fullSections = [];
                     for (let s of rawSections) {
@@ -1090,16 +1178,18 @@ with tab3:
                         let meanVi = await translateText(cleanW, 'en', 'vi');
                         vocabList.push({ word: cleanW, mean: meanVi });
                     }
-                    vocabList.push({ word: "methodological rigor", mean: "tính chặt chẽ về mặt phương pháp luận" });
-                    vocabList.push({ word: "reproducible", mean: "có thể lặp lại / tái lập được kết quả" });
+                    if (!isAcademic) {
+                        vocabList.push({ word: "announcement", mean: "thông báo (qua loa)" });
+                        vocabList.push({ word: "directional sign", mean: "biển chỉ dẫn" });
+                    }
 
                     renderLecture({
-                        title: `LECTURE SCRIPT & ARTICLE: ${enTopic.toUpperCase()} (${rawTopic.toUpperCase()})`,
+                        title: `${isAcademic ? 'LECTURE SCRIPT' : 'PRACTICAL ENGLISH GUIDE'}: ${enTopic.toUpperCase()} (${rawTopic.toUpperCase()})`,
                         sections: fullSections,
                         vocab: vocabList
                     });
                 } catch (e) {
-                    alert("Có lỗi khi tạo kịch bản, vui lòng thử lại!");
+                    alert("Có lỗi khi tạo nội dung, vui lòng thử lại!");
                 } finally {
                     btn.innerText = "Soạn bài viết / Kịch bản";
                     btn.disabled = false;
@@ -1112,7 +1202,7 @@ with tab3:
                 document.querySelectorAll('.lec-vi-text').forEach(el => {
                     el.style.display = isLectureViVisible ? "block" : "none";
                 });
-                btn.innerText = isLectureViVisible ? "Ẩn bản dịch tiếng Việt" : "Hiện bản dịch tiếng Việt";
+                btn.innerText = isLectureViVisible ? "Ẩn tiếng Việt" : "Hiện tiếng Việt";
             }
 
             function playFullLecture(rate) {
@@ -1139,16 +1229,10 @@ with tab3:
                 speakNextSec();
             }
 
-            // XUẤT FILE MICROSOFT WORD (.DOC) CHUẨN TIMES NEW ROMAN
             function downloadLectureWord() {
                 if (!currentLectureObj) return;
                 let lec = currentLectureObj;
-
-                let bodyHtml = `
-                    <h2 style="text-align:center; color:#084298; font-family:'Times New Roman', serif;">${lec.title}</h2>
-                    <hr/>
-                `;
-
+                let bodyHtml = `<h2 style="text-align:center; color:#084298; font-family:'Times New Roman', serif;">${lec.title}</h2><hr/>`;
                 lec.sections.forEach(sec => {
                     bodyHtml += `
                         <p style="font-weight:bold; color:#0d6efd; font-size:13pt; margin-top:12pt; margin-bottom:4pt;">${sec.heading}</p>
@@ -1156,77 +1240,67 @@ with tab3:
                         <p style="font-size:11.5pt; font-style:italic; color:#333333; line-height:1.4; text-align:justify; margin-bottom:10pt;"><i>(Dịch nghĩa: ${sec.vi})</i></p>
                     `;
                 });
-
                 if (lec.vocab && lec.vocab.length > 0) {
-                    bodyHtml += `<p style="font-weight:bold; color:#084298; font-size:13pt; margin-top:14pt;">KEY TERMINOLOGY (THUẬT NGỮ TRỌNG TÂM):</p><ul>`;
+                    bodyHtml += `<p style="font-weight:bold; color:#084298; font-size:13pt; margin-top:14pt;">KEY VOCABULARY & TERMINOLOGY:</p><ul>`;
                     lec.vocab.forEach(v => {
                         bodyHtml += `<li style="font-size:12pt; margin-bottom:4pt;"><b>${v.word}:</b> ${v.mean}</li>`;
                     });
                     bodyHtml += `</ul>`;
                 }
-
-                let wordDocument = `
-                    <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-                    <head><meta charset='utf-8'><title>${lec.title}</title>
-                    <style>body { font-family: 'Times New Roman', Times, serif; }</style>
-                    </head>
-                    <body>${bodyHtml}</body>
-                    </html>
-                `;
-
+                let wordDocument = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>${lec.title}</title><style>body { font-family: 'Times New Roman', Times, serif; }</style></head><body>${bodyHtml}</body></html>`;
                 let blob = new Blob(['\ufeff', wordDocument], { type: 'application/msword' });
                 let url = URL.createObjectURL(blob);
                 let link = document.createElement('a');
                 link.href = url;
-                link.download = 'Kich_Ban_Bai_Giang_AI.doc';
+                link.download = 'Tai_Lieu_Hoc_Tieng_Anh_AI.doc';
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
                 URL.revokeObjectURL(url);
             }
 
-            // Khởi tạo bài giảng mặc định khi mở tab
-            renderLecture(LECTURE_BANK["ttest1"]);
+            renderLecture(currentLectureObj);
 
             // =========================================================================
-            // PHẦN 2: HỘI THOẠI NHẬP VAI THỰC TẾ (GIỮ NGUYÊN BẢN ĐÃ CHẠY TỐT)
+            // PHẦN 2: HỘI THOẠI NHẬP VAI THỰC TẾ (THÊM TÌNH HUỐNG GA METRO)
             // =========================================================================
             const DIALOGUE_BANK = {
-                immigration: [
+                metro_conv: [
                     {
-                        title: "Tình huống 1: Kiểm tra Hộ chiếu & Mục đích nhập cảnh",
+                        title: "Tình huống 1: Mua vé & Hỏi tuyến tàu tại Ga Metro",
                         turns: [
-                            { role: "Immigration Officer (An ninh cửa khẩu)", en: "Good morning. May I see your passport and boarding pass, please? What is the purpose of your visit?", vi: "Chào buổi sáng. Vui lòng cho tôi xem hộ chiếu và thẻ lên máy bay. Mục đích chuyến đi của ông/bà là gì?" },
-                            { role: "Passenger (Người nhập cảnh)", en: "Here you are. I am attending an international medical conference at the university for five days.", vi: "Đây ạ. Tôi đến tham dự một hội nghị y khoa quốc tế tại trường đại học trong 5 ngày." },
-                            { role: "Immigration Officer (An ninh cửa khẩu)", en: "Where will you be staying, and do you have a return flight ticket?", vi: "Ông/bà sẽ lưu trú ở đâu và có vé máy bay khứ hồi chưa?" },
-                            { role: "Passenger (Người nhập cảnh)", en: "I am staying at the Grand Hotel downtown. Here is my hotel reservation and return ticket.", vi: "Tôi ở tại khách sạn Grand ở trung tâm thành phố. Đây là xác nhận đặt phòng và vé khứ hồi của tôi." }
+                            { role: "Passenger (Hành khách)", en: "Excuse me, does this metro line go directly to Ben Thanh Central Station?", vi: "Xin lỗi, tuyến metro này có đi thẳng đến Ga Trung tâm Bến Thành không ạ?" },
+                            { role: "Station Staff (Nhân viên nhà ga)", en: "Yes, it does. You need to take Line 1 heading south. You can buy a single-journey ticket at the blue vending machine over there.", vi: "Có ạ. Bạn cần đi Tuyến số 1 hướng về phía Nam. Bạn có thể mua vé một lượt tại máy bán vé tự động màu xanh đằng kia." },
+                            { role: "Passenger (Hành khách)", en: "Thank you. Which platform should I go to after tapping my ticket?", vi: "Cảm ơn bạn. Tôi nên đi đến sân ga nào sau khi quẹt vé ạ?" },
+                            { role: "Station Staff (Nhân viên nhà ga)", en: "Go down the escalator to Platform 2. The next train arrives in three minutes.", vi: "Bạn đi thang cuốn xuống Sân ga số 2 nhé. Chuyến tàu tiếp theo sẽ đến trong 3 phút nữa." }
                         ],
                         vocab: [
-                            { word: "immigration", ipa: "/ˌɪm.əˈɡreɪ.ʃən/", mean: "nhập cảnh, di trú" },
-                            { word: "purpose of visit", ipa: "/ˈpɝː.pəs əv ˈvɪz.ɪt/", mean: "mục đích chuyến đi" },
-                            { word: "boarding pass", ipa: "/ˈbɔːr.dɪŋ pæs/", mean: "thẻ lên máy bay" },
-                            { word: "reservation", ipa: "/ˌrez.ɚˈveɪ.ʃən/", mean: "sự đặt chỗ trước" }
+                            { word: "vending machine", ipa: "/ˈven.dɪŋ məˌʃiːn/", mean: "máy bán vé tự động" },
+                            { word: "platform", ipa: "/ˈplæt.fɔːrm/", mean: "sân ga / ke ga" },
+                            { word: "escalator", ipa: "/ˈes.kə.leɪ.t̬ɚ/", mean: "thang cuốn" }
+                        ],
+                        grammar: {
+                            title: "Câu hỏi xác nhận tuyến đường & Chỉ dẫn vị trí",
+                            rule: "Does this line go directly to + Place? / Take Line X heading + Direction",
+                            example: "Does this train stop at the university station? Take the escalator to Platform 1."
+                        }
+                    }
+                ],
+                immigration: [
+                    {
+                        title: "Tình huống: Kiểm tra Hộ chiếu & Mục đích nhập cảnh",
+                        turns: [
+                            { role: "Immigration Officer", en: "Good morning. May I see your passport and boarding pass, please? What is the purpose of your visit?", vi: "Chào buổi sáng. Vui lòng cho tôi xem hộ chiếu và thẻ lên máy bay. Mục đích chuyến đi của ông/bà là gì?" },
+                            { role: "Passenger", en: "Here you are. I am attending an international medical conference at the university for five days.", vi: "Đây ạ. Tôi đến tham dự một hội nghị y khoa quốc tế tại trường đại học trong 5 ngày." }
+                        ],
+                        vocab: [
+                            { word: "immigration", ipa: "/ˌɪm.əˈɡreɪ.ʃən/", mean: "nhập cảnh" },
+                            { word: "boarding pass", ipa: "/ˈbɔːr.dɪŋ pæs/", mean: "thẻ lên máy bay" }
                         ],
                         grammar: {
                             title: "Thì Hiện tại Tiếp diễn diễn tả kế hoạch đã định sẵn",
-                            rule: "S + am/is/are + V-ing + (thời gian/địa điểm cụ thể)",
+                            rule: "S + am/is/are + V-ing + (thời gian/địa điểm)",
                             example: "I am staying at a hotel near the airport and returning on Friday."
-                        }
-                    },
-                    {
-                        title: "Tình huống 2: Khai báo Hải quan & Hành lý",
-                        turns: [
-                            { role: "Customs Officer (Nhân viên Hải quan)", en: "Do you have anything to declare, such as restricted medications, food, or more than ten thousand dollars in cash?", vi: "Ông/bà có hàng hóa gì cần khai báo không, như thuốc hạn chế, thực phẩm, hoặc hơn 10.000 đô la tiền mặt?" },
-                            { role: "Passenger (Người nhập cảnh)", en: "No, I only have personal belongings and my prescribed medication with a doctor's note.", vi: "Không, tôi chỉ mang đồ dùng cá nhân và thuốc kê đơn có giấy xác nhận của bác sĩ." }
-                        ],
-                        vocab: [
-                            { word: "declare", ipa: "/dɪˈkler/", mean: "khai báo (hải quan)" },
-                            { word: "personal belongings", ipa: "/ˈpɝː.sən.əl bɪˈlɑːŋ.ɪŋz/", mean: "đồ dùng cá nhân" }
-                        ],
-                        grammar: {
-                            title: "Câu hỏi nghi vấn với 'Anything' & Câu mệnh lệnh lịch sự",
-                            rule: "Do you have anything to + V-infinitive? / Please + V-bare...",
-                            example: "Do you have any liquids to declare? Please open your suitcase for inspection."
                         }
                     }
                 ],
@@ -1235,16 +1309,16 @@ with tab3:
                         title: "Thảo luận thiết kế nghiên cứu & Cỡ mẫu",
                         turns: [
                             { role: "Principal Investigator", en: "How did we calculate the required sample size for this clinical trial?", vi: "Chúng ta đã tính toán cỡ mẫu cần thiết cho thử nghiệm lâm sàng này như thế nào?" },
-                            { role: "Biostatistician", en: "We based it on an eighty percent statistical power and a five percent significance level, accounting for a ten percent dropout rate.", vi: "Chúng tôi dựa trên lực thống kê 80% và mức ý nghĩa 5%, có tính đến tỷ lệ bỏ cuộc 10%." }
+                            { role: "Biostatistician", en: "We based it on an eighty percent statistical power and a five percent significance level.", vi: "Chúng tôi dựa trên lực thống kê 80% và mức ý nghĩa 5%." }
                         ],
                         vocab: [
                             { word: "statistical power", ipa: "/stəˈtɪs.tɪ.kəl ˈpaʊ.ɚ/", mean: "lực thống kê" },
                             { word: "significance level", ipa: "/sɪɡˈnɪf.ə.kəns ˈlev.əl/", mean: "mức ý nghĩa thống kê" }
                         ],
                         grammar: {
-                            title: "Phân từ hiện tại (V-ing) rút gọn mệnh đề bổ sung",
-                            rule: "Main Clause + , accounting for / considering + Noun Phrase",
-                            example: "We ran a multivariate model, adjusting for age and baseline severity."
+                            title: "Cấu trúc bị động thì Quá khứ đơn",
+                            rule: "S + was/were + V3/ed + based on...",
+                            example: "The sample size was calculated based on previous pilot data."
                         }
                     }
                 ],
@@ -1256,8 +1330,7 @@ with tab3:
                             { role: "Patient", en: "Can I take this medication alongside my blood pressure pills?", vi: "Tôi có thể uống thuốc này cùng với thuốc huyết áp của tôi không?" }
                         ],
                         vocab: [
-                            { word: "drowsiness", ipa: "/ˈdraʊ.zi.nəs/", mean: "cơn buồn ngủ" },
-                            { word: "drug interaction", ipa: "/drʌɡ ˌɪn.t̬ɚˈæk.ʃən/", mean: "tương tác thuốc" }
+                            { word: "drowsiness", ipa: "/ˈdraʊ.zi.nəs/", mean: "cơn buồn ngủ" }
                         ],
                         grammar: {
                             title: "Câu điều kiện loại 1 trong hướng dẫn y khoa",
@@ -1268,42 +1341,24 @@ with tab3:
                 ],
                 conference: [
                     {
-                        title: "Trình bày kết quả & Trả lời câu hỏi phản biện",
+                        title: "Trình bày kết quả tại Hội nghị Quốc tế",
                         turns: [
-                            { role: "Speaker", en: "As illustrated in the Kaplan-Meier curve, overall survival was significantly higher in the treatment group.", vi: "Như minh họa trong đường cong Kaplan-Meier, tỷ lệ sống còn toàn bộ cao hơn đáng kể ở nhóm điều trị." },
-                            { role: "Moderator", en: "Thank you for a clear presentation. Could you elaborate on the limitations of your study?", vi: "Cảm ơn bài trình bày rõ ràng. Ông/bà có thể nói rõ hơn về những hạn chế của nghiên cứu không?" }
+                            { role: "Speaker", en: "As illustrated in the figure, overall survival was significantly higher in the treatment group.", vi: "Như minh họa trong biểu đồ, tỷ lệ sống còn toàn bộ cao hơn đáng kể ở nhóm điều trị." },
+                            { role: "Moderator", en: "Thank you. Could you elaborate on the limitations of your study?", vi: "Cảm ơn. Ông/bà có thể nói rõ hơn về những hạn chế của nghiên cứu không?" }
                         ],
                         vocab: [
-                            { word: "illustrate", ipa: "/ˈɪl.ə.streɪt/", mean: "minh họa" },
                             { word: "elaborate on", ipa: "/iˈlæb.ə.reɪt ɑːn/", mean: "trình bày chi tiết thêm" }
                         ],
                         grammar: {
                             title: "Cấu trúc bị động so sánh trong báo cáo kết quả",
-                            rule: "S + was/were + Adv + Comparative Adj + in + Group",
+                            rule: "S + was/were + Adv + Comparative Adj",
                             example: "The incidence rate was markedly lower in the vaccinated cohort."
-                        }
-                    }
-                ],
-                hotel: [
-                    {
-                        title: "Làm thủ tục Nhận phòng Khách sạn",
-                        turns: [
-                            { role: "Receptionist", en: "Welcome to Grand Hotel. Do you have a reservation under your name?", vi: "Chào mừng đến khách sạn Grand. Quý khách có đặt phòng trước dưới tên mình không ạ?" },
-                            { role: "Guest", en: "Yes, my name is Nam Dao. I booked a deluxe room for four nights.", vi: "Vâng, tên tôi là Nam Đào. Tôi đã đặt một phòng deluxe cho 4 đêm." }
-                        ],
-                        vocab: [
-                            { word: "deluxe room", ipa: "/dəˈlʌks ruːm/", mean: "phòng cao cấp" }
-                        ],
-                        grammar: {
-                            title: "Thì Quá khứ đơn diễn tả hành động đặt chỗ đã hoàn tất",
-                            rule: "S + booked / reserved + Object + for + Duration",
-                            example: "I reserved an airport shuttle for tomorrow morning."
                         }
                     }
                 ]
             };
 
-            let currentTopicKey = "immigration";
+            let currentTopicKey = "metro_conv";
             let currentClipIndex = 0;
             let isSubVisible = true;
             let customDialogueObj = null;
@@ -1335,11 +1390,11 @@ with tab3:
                     vocabHtml += `
                         <div class="vocab-card">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <span style="font-weight:bold; color:#0d6efd; font-size:15px;">${v.word}</span>
-                                <button class="btn-outline-blue" style="padding:3px 8px; font-size:11px;" onclick="speakText('${v.word.replace(/'/g, "\\'")}', 0.9)">Nghe</button>
+                                <span style="font-weight:bold; color:#0d6efd; font-size:14px;">${v.word}</span>
+                                <button class="btn-outline-blue" style="padding:2px 8px; font-size:11px;" onclick="speakText('${v.word.replace(/'/g, "\\'")}', 0.9)">Nghe</button>
                             </div>
                             ${v.ipa ? `<div style="font-family:monospace; color:#6c757d; font-size:12px;">${v.ipa}</div>` : ''}
-                            <div style="color:#212529; font-size:13px; margin-top:3px;">Nghĩa: <b>${v.mean}</b></div>
+                            <div style="color:#212529; font-size:13px; margin-top:2px;">Nghĩa: <b>${v.mean}</b></div>
                         </div>
                     `;
                 });
@@ -1347,13 +1402,13 @@ with tab3:
 
                 document.getElementById('related-grammar-box').innerHTML = `
                     <div class="grammar-card">
-                        <div style="font-weight:bold; color:#084298; font-size:14px; margin-bottom:5px;">${sceneObj.grammar.title}</div>
-                        <div style="background:#ffffff; padding:6px 8px; border-radius:4px; font-family:monospace; font-size:12px; color:#d63384; margin-bottom:6px;">
+                        <div style="font-weight:bold; color:#084298; font-size:13.5px; margin-bottom:4px;">${sceneObj.grammar.title}</div>
+                        <div style="background:#ffffff; padding:5px 7px; border-radius:4px; font-family:monospace; font-size:11.5px; color:#d63384; margin-bottom:5px;">
                             ${sceneObj.grammar.rule}
                         </div>
                         <div style="font-size:13px; color:#333;">
-                            <b>Ví dụ mở rộng:</b> <i>"${sceneObj.grammar.example}"</i>
-                            <button class="btn-outline-blue" style="padding:2px 7px; font-size:11px; margin-left:5px;" onclick="speakText('${sceneObj.grammar.example.replace(/'/g, "\\'")}', 0.95)">Nghe</button>
+                            <b>Ví dụ:</b> <i>"${sceneObj.grammar.example}"</i>
+                            <button class="btn-outline-blue" style="padding:2px 6px; font-size:11px; margin-left:4px;" onclick="speakText('${sceneObj.grammar.example.replace(/'/g, "\\'")}', 0.95)">Nghe</button>
                         </div>
                     </div>
                 `;
@@ -1395,9 +1450,14 @@ with tab3:
 
                 try {
                     let lower = rawTopic.toLowerCase();
-                    if (lower.includes("nhập cảnh") || lower.includes("hải quan") || lower.includes("sân bay") || lower.includes("immigration")) {
+                    if (lower.includes("metro") || lower.includes("tàu điện") || lower.includes("nhà ga")) {
+                        customDialogueObj = DIALOGUE_BANK["metro_conv"][0];
+                        renderDialogueScene(customDialogueObj, `TÌNH HUỐNG: ${rawTopic.toUpperCase()}`);
+                        return;
+                    }
+                    if (lower.includes("nhập cảnh") || lower.includes("hải quan") || lower.includes("sân bay")) {
                         customDialogueObj = DIALOGUE_BANK["immigration"][0];
-                        renderDialogueScene(customDialogueObj, `TÌNH HUỐNG TỰ CHỌN: ${rawTopic.toUpperCase()}`);
+                        renderDialogueScene(customDialogueObj, `TÌNH HUỐNG: ${rawTopic.toUpperCase()}`);
                         return;
                     }
                     let enTopic = rawTopic;
@@ -1405,10 +1465,10 @@ with tab3:
                         enTopic = await translateText(rawTopic, 'vi', 'en');
                     }
                     let turnsEn = [
-                        { role: "Person A (Đối tác / Nhân viên)", en: `Good morning. How can I assist you today regarding ${enTopic}?` },
-                        { role: "Person B (Bạn / Khách)", en: `Hello, I need some information and assistance with ${enTopic}. Could you guide me through the procedure?` },
-                        { role: "Person A (Đối tác / Nhân viên)", en: `Certainly. Please provide your relevant documents first, and we will process your request right away.` },
-                        { role: "Person B (Bạn / Khách)", en: `Thank you very much for your prompt support. Here are the details you requested.` }
+                        { role: "Staff / Local (Nhân viên / Người bản xứ)", en: `Hello! How can I help you today regarding ${enTopic}?` },
+                        { role: "Traveler / Guest (Bạn / Khách)", en: `Hi, I am looking for information about ${enTopic}. Could you show me the way or explain how it works?` },
+                        { role: "Staff / Local (Nhân viên / Người bản xứ)", en: `Of course! Just follow the main signs straight ahead, and you will see the service desk right there.` },
+                        { role: "Traveler / Guest (Bạn / Khách)", en: `That is very clear. Thank you so much for your help!` }
                     ];
                     let turnsFull = [];
                     for (let t of turnsEn) {
@@ -1416,18 +1476,18 @@ with tab3:
                         turnsFull.push({ role: t.role, en: t.en, vi: viText });
                     }
                     customDialogueObj = {
-                        title: `HỘI THOẠI THỰC TẾ: ${rawTopic.toUpperCase()}`,
+                        title: `HỘI THOẠI: ${rawTopic.toUpperCase()}`,
                         turns: turnsFull,
-                        vocab: [{ word: "procedure", ipa: "/prəˈsiː.dʒɚ/", mean: "thủ tục, quy trình" }],
+                        vocab: [{ word: "service desk", ipa: "/ˈsɝː.vɪs desk/", mean: "quầy dịch vụ / hỗ trợ" }],
                         grammar: {
-                            title: "Mẫu câu Đề nghị Hỗ trợ Lịch sự",
-                            rule: "Could you guide me through + Noun?",
-                            example: `Could you clarify the requirements for ${enTopic}?`
+                            title: "Mẫu câu Hỏi đường & Hướng dẫn Giao tiếp",
+                            rule: "Could you show me the way...? / Just follow the signs straight ahead.",
+                            example: `Could you show me the way to ${enTopic}?`
                         }
                     };
                     renderVideoLesson();
                 } finally {
-                    btn.innerText = "Tạo hội thoại thực tế";
+                    btn.innerText = "Tạo hội thoại";
                     btn.disabled = false;
                 }
             }
@@ -1446,11 +1506,11 @@ with tab3:
                 function speakNextTurn() {
                     if (!isPlayingSequence || index >= turns.length) {
                         wave.classList.remove('playing');
-                        status.innerText = "Đã phát xong đoạn hội thoại.";
+                        status.innerText = "Đã phát xong.";
                         isPlayingSequence = false;
                         return;
                     }
-                    status.innerText = `Đang đọc lượt ${index + 1}/${turns.length} (${rate}x)...`;
+                    status.innerText = `Đang đọc lượt ${index + 1}/${turns.length}...`;
                     let utterance = new SpeechSynthesisUtterance(turns[index].en);
                     utterance.lang = 'en-US';
                     utterance.rate = rate;
@@ -1470,7 +1530,7 @@ with tab3:
                 let wave = document.getElementById('wave-indicator');
                 let status = document.getElementById('player-status');
                 if (wave) wave.classList.remove('playing');
-                if (status) status.innerText = "Đã dừng phát.";
+                if (status) status.innerText = "Đã dừng.";
             }
 
             function toggleSubtitle() {
@@ -1510,7 +1570,7 @@ with tab3:
                 let word = document.getElementById('dict-input').value.trim();
                 if (!word) return;
                 let resDiv = document.getElementById('dict-result');
-                resDiv.innerHTML = "<p>Đang tra cứu dữ liệu từ điển...</p>";
+                resDiv.innerHTML = "<p>Đang tra cứu...</p>";
                 let viMeaning = await translateText(word, 'en', 'vi');
                 let phonetic = "";
                 let defHtml = "";
@@ -1522,26 +1582,24 @@ with tab3:
                         phonetic = entry.phonetic || (entry.phonetics.find(p => p.text) || {}).text || "";
                         entry.meanings.slice(0, 2).forEach(m => {
                             let def = m.definitions[0];
-                            defHtml += `<div style="margin-bottom: 8px;"><span style="background:#e7f1ff; color:#0d6efd; padding:2px 6px; border-radius:4px; font-size:12px; font-weight:bold;">${m.partOfSpeech}</span><span> ${def.definition}</span>${def.example ? `<div style="color:#084298; font-style:italic; margin-top:3px;">Ví dụ: "${def.example}"</div>` : ''}</div>`;
+                            defHtml += `<div style="margin-bottom: 8px;"><span style="background:#e7f1ff; color:#0d6efd; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:bold;">${m.partOfSpeech}</span><span> ${def.definition}</span>${def.example ? `<div style="color:#084298; font-style:italic; margin-top:3px;">Ví dụ: "${def.example}"</div>` : ''}</div>`;
                         });
                     }
                 } catch(e) {}
-                resDiv.innerHTML = `<div class="word-header">${word} <button class="btn-blue" style="padding:5px 12px; font-size:12px;" onclick="speakText('${word.replace(/'/g, "\\'")}', 0.95)">Đọc chuẩn</button> <button class="btn-outline-blue" style="padding:5px 12px; font-size:12px;" onclick="speakText('${word.replace(/'/g, "\\'")}', 0.65)">Đọc chậm</button></div>${phonetic ? `<div class="phonetic">${phonetic}</div>` : ''}<div class="meaning-box"><b>Nghĩa tiếng Việt:</b> <span style="font-size:16px; color:#0d6efd; font-weight:bold;">${viMeaning}</span></div>${defHtml ? `<div><b>Giải nghĩa & Ngữ cảnh Anh - Anh:</b><div style="margin-top:8px;">${defHtml}</div></div>` : ''}`;
+                resDiv.innerHTML = `<div class="word-header">${word} <button class="btn-blue" style="padding:4px 10px; font-size:11px;" onclick="speakText('${word.replace(/'/g, "\\'")}', 0.95)">Đọc chuẩn</button> <button class="btn-outline-blue" style="padding:4px 10px; font-size:11px;" onclick="speakText('${word.replace(/'/g, "\\'")}', 0.65)">Đọc chậm</button></div>${phonetic ? `<div class="phonetic">${phonetic}</div>` : ''}<div class="meaning-box"><b>Nghĩa tiếng Việt:</b> <span style="font-size:15px; color:#0d6efd; font-weight:bold;">${viMeaning}</span></div>${defHtml ? `<div><b>Giải nghĩa Anh - Anh:</b><div style="margin-top:6px;">${defHtml}</div></div>` : ''}`;
                 speakText(word, 0.95);
             }
 
             const SENTENCE_BANK = {
+                metro: [
+                    { en: "Excuse me, which metro line goes to the city center, and where can I buy a ticket?", vi: "Xin lỗi, tuyến metro nào đi đến trung tâm thành phố và tôi có thể mua vé ở đâu?" },
+                    { en: "Please tap your smart card at the fare gate and follow the signs to Platform 2.", vi: "Vui lòng chạm thẻ thông minh tại cổng soát vé và đi theo biển báo đến Sân ga số 2." }
+                ],
                 immigration: [
-                    { en: "Here is my passport and return ticket. I am here for an international medical conference.", vi: "Đây là hộ chiếu và vé khứ hồi của tôi. Tôi đến đây để tham dự một hội nghị y khoa quốc tế." },
-                    { en: "I have nothing to declare, only personal belongings and prescribed medication.", vi: "Tôi không có gì cần khai báo, chỉ có đồ dùng cá nhân và thuốc kê đơn." }
+                    { en: "Here is my passport and return ticket. I am here for an international medical conference.", vi: "Đây là hộ chiếu và vé khứ hồi của tôi. Tôi đến đây để tham dự một hội nghị y khoa quốc tế." }
                 ],
                 medical: [
-                    { en: "The one-sample t-test compares the mean of a single sample to a known population mean.", vi: "Kiểm định t một mẫu so sánh giá trị trung bình của một mẫu đơn lẻ với giá trị trung bình quần thể đã biết." },
-                    { en: "Statistical thinking is essential for evidence-based medical research.", vi: "Tư duy thống kê là yếu tố thiết yếu cho nghiên cứu y học dựa trên bằng chứng." }
-                ],
-                academic: [
-                    { en: "Thank you for the opportunity to present our latest research findings today.", vi: "Cảm ơn vì cơ hội được trình bày những phát hiện nghiên cứu mới nhất của chúng tôi hôm nay." },
-                    { en: "As shown in the figure, there is a strong correlation between the two variables.", vi: "Như được thể hiện trong biểu đồ, có một mối tương quan chặt chẽ giữa hai biến số." }
+                    { en: "The one-sample t-test compares the mean of a single sample to a known population mean.", vi: "Kiểm định t một mẫu so sánh giá trị trung bình của một mẫu đơn lẻ với giá trị trung bình quần thể đã biết." }
                 ]
             };
 
@@ -1582,7 +1640,7 @@ with tab3:
                 let score = Math.round((matchCount / cleanTarget.length) * 100);
                 let badgeColor = score >= 80 ? "#cfe2ff; color:#084298" : (score >= 50 ? "#fff3cd; color:#664d03" : "#f8d7da; color:#842029");
                 let comment = score >= 80 ? "Xuất sắc! Phát âm rất chuẩn xác." : (score >= 50 ? "Khá tốt! Chú ý các từ gạch đỏ." : "Cần luyện thêm! Hãy bấm 'Nghe chậm' và đọc lại.");
-                document.getElementById('speak-feedback').innerHTML = `<div style="background:#f8f9fa; border:1px solid #dee2e6; border-radius:8px; padding:15px;"><div><b>AI nghe được:</b> <i>"${spoken}"</i></div><div style="margin-top:8px;"><b>Đối chiếu:</b> ${highlightedHtml}</div><div class="score-circle" style="background:${badgeColor};">Điểm phát âm: ${score}/100</div><div style="margin-top:8px; font-size:14px;"><b>Nhận xét:</b> ${comment}</div></div>`;
+                document.getElementById('speak-feedback').innerHTML = `<div style="background:#f8f9fa; border:1px solid #dee2e6; border-radius:8px; padding:12px;"><div><b>AI nghe được:</b> <i>"${spoken}"</i></div><div style="margin-top:6px;"><b>Đối chiếu:</b> ${highlightedHtml}</div><div class="score-circle" style="background:${badgeColor};">Điểm: ${score}/100</div><div style="margin-top:6px; font-size:13px;"><b>Nhận xét:</b> ${comment}</div></div>`;
             }
 
             async function sendTutorMessage() {
@@ -1596,12 +1654,12 @@ with tab3:
                 let isVietnamese = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(text);
                 if (isVietnamese) {
                     let enTrans = await translateText(text, 'vi', 'en');
-                    chatBox.innerHTML += `<div class="msg-ai"><b>Diễn đạt Tiếng Anh tự nhiên:</b><br><span style="color:#0d6efd; font-weight:bold; font-size:15px;">"${enTrans}"</span> <button class="btn-outline-blue" style="padding:3px 10px; font-size:12px;" onclick="speakText('${enTrans.replace(/'/g, "\\'")}', 0.95)">Nghe</button></div>`;
+                    chatBox.innerHTML += `<div class="msg-ai"><b>Diễn đạt Tiếng Anh tự nhiên:</b><br><span style="color:#0d6efd; font-weight:bold; font-size:14px;">"${enTrans}"</span> <button class="btn-outline-blue" style="padding:2px 8px; font-size:11px;" onclick="speakText('${enTrans.replace(/'/g, "\\'")}', 0.95)">Nghe</button></div>`;
                     speakText(enTrans, 0.95);
                 } else {
                     let viMeaning = await translateText(text, 'en', 'vi');
                     let polishedEn = await translateText(viMeaning, 'vi', 'en');
-                    chatBox.innerHTML += `<div class="msg-ai"><b>Phân tích câu của bạn:</b><br>• <b>Nghĩa tiếng Việt:</b> ${viMeaning}<br>• <b>Gợi ý mượt hơn:</b> <span style="color:#084298; font-weight:bold;">"${polishedEn}"</span> <button class="btn-outline-blue" style="padding:3px 10px; font-size:12px;" onclick="speakText('${polishedEn.replace(/'/g, "\\'")}', 0.95)">Nghe mẫu</button></div>`;
+                    chatBox.innerHTML += `<div class="msg-ai"><b>Phân tích câu của bạn:</b><br>• <b>Nghĩa tiếng Việt:</b> ${viMeaning}<br>• <b>Gợi ý mượt hơn:</b> <span style="color:#084298; font-weight:bold;">"${polishedEn}"</span> <button class="btn-outline-blue" style="padding:2px 8px; font-size:11px;" onclick="speakText('${polishedEn.replace(/'/g, "\\'")}', 0.95)">Nghe mẫu</button></div>`;
                     speakText(polishedEn, 0.95);
                 }
                 chatBox.scrollTop = chatBox.scrollHeight;
@@ -1610,4 +1668,5 @@ with tab3:
     </body>
     </html>
     """
-    components.html(english_tutor_html, height=850, scrolling=True)
+    english_tutor_html = english_tutor_template.replace("__UPLOADED_DOC_JSON__", uploaded_json_str)
+    components.html(english_tutor_html, height=820, scrolling=True)
