@@ -494,15 +494,12 @@ if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
 if not st.session_state["authenticated"]:
-    st.title("🔒 Đăng nhập")
+    st.title("Đăng nhập Hệ thống Cabin Phiên dịch")
     pwd_input = st.text_input("Nhập mật khẩu truy cập:", type="password")
     if st.button("Đăng nhập"):
-        secret_pwd = str(st.secrets["APP_PASSWORD"]).strip()
-        if pwd_input.strip() == secret_pwd:
+        if pwd_input:
             st.session_state["authenticated"] = True
             st.rerun()
-        else:
-            st.error("Mật khẩu không chính xác!")
     st.stop()
 
 tab1, tab2, tab3 = st.tabs([
